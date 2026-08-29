@@ -1,0 +1,12 @@
+venv/
+data/
+logs/
+.env
+*env
+*credentials*.json
+__pycache__/
+*.pyc
+*.log
+*.parquet
+*.json
+*.csv

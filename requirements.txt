@@ -1,0 +1,7 @@
+pandas
+faker
+loguru
+pytest
+pytest-html
+pandas-gbq
+google-cloud-bigquery
