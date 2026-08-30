@@ -547,6 +547,7 @@ def main():
     pd.DataFrame(db["Fato_Pesquisa_Clima"]).to_parquet(f"{BASE_DIR}/Fato_Pesquisa_Clima.parquet")
     pd.DataFrame(db["Fato_Avaliacao_9Box"]).to_parquet(f"{BASE_DIR}/Fato_Avaliacao_9box.parquet")
     pd.DataFrame(db["Fato_Requisicoes_Vagas"]).to_parquet(f"{BASE_DIR}/Fato_Requisicoes_Vagas.parquet")
+    pd.DataFrame(db["Fato_Snapshot_Mensal"]).to_parquet(f"{BASE_DIR}/Fato_Snapshot_Mensal.parquet")
             
     with open(f"{BASE_DIR}/Dim_Pessoas.json", "w", encoding = "utf-8") as f:
         json.dump(db["Dim_Pessoas"], f, ensure_ascii = False, indent = 2)
