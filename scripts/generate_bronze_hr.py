@@ -239,3 +239,60 @@ def admit_employee(current_date: date, is_carga_inicial: bool = False) -> None:
     anos_de_casa_simulado = random.uniform(0, 7) if is_carga_inicial else 0.0
     data_admissao = current_date - relativedelta(days = int(anos_de_casa_simulado * 365))
     salario_final = calculate_salary_compa_ratio(cargo["faixa_100_mid"], anos_de_casa_simulado)
+    
+    # Configuração de pesos demograficos e distribuições de D&I
+    sexo = random.choices(["Feminino", "Masculino"], weights = [0.51, 0.49])[0]
+    
+    id_genero = random.choices(["Cisgênero", "Transgênero", "Não-Binário"], weights = [0.94, 0.04, 0.02])[0]
+    
+    orientacao = random.choices(["Heterossexual", "Homossexual", "Bissexual", "Pansexual", "Outros", "Não Informado"],
+                                weights = [0.85, 0.06, 0.04, 0.02, 0.01, 0.02])[0]
+    
+    raca = random.choices(["Branca", "Parda", "Preta", "Amarela", "Indígena"],
+                          weights = [0.43, 0.45, 0.10, 0.01, 0.01])[0]
+    
+    is_pcd = random.choices([False, True], weights = [0.85, 0.15])[0]
+    
+    if is_pcd:
+        # Registra algum tipo de defiência caso a flag "is_pcd" seja igual a true
+        tipo_deficiencia = random.choices(["Física", "Auditiva", "Visual", "Intelectual", "Mental / Psicossocial", "Múltipla"],
+                                  weights = [0.44, 0.19, 0.15, 0.08, 0.03, 0.11])[0]
+    else:
+        # Se for false mantém como none
+        tipo_deficiencia = None
+    
+    db["Dim_Pessoas"].append({
+        "id_pessoa": person_id_seq,
+        "nome": fake.name(),
+        "cpf": fake.cpf(),
+        "data_nascimento": fake.date_of_birth(
+            minimum_age = 18,
+            maximum_age = 75
+        ).isoformat(),
+        "sexo_biologico": sexo,
+        "identidade_genero": id_genero,
+        "orientacao_sexual": orientacao,
+        "raca_cor": raca,
+        "is_pcd": is_pcd,
+        "tipo_deficiencia": tipo_deficiencia,
+        "estado_sigla": office["estado_sigla"],
+        "cidade": office["cidade_escritorio"],
+        "latitude": p_lat,
+        "longitude": p_lon,
+        "dependentes": [{"nome": fake.first_name()} for _ in range(random.randint(0, 2))]
+    })
+    
+    # Criação da gravação para a fato_contratos
+    contract_data = {
+        "id_contrato": contract_id_seq,
+        "id_pessoa": person_id_seq,
+        "id_area": office["id_area"],
+        "id_cargo": cargo["id_cargo"],
+        "tipo_contrato": "CLT",
+        "modelo_trabalho": modelo,
+        "data_admissao": data_admissao.isoformat(),
+        "data_demissao": None,
+        "status": "Ativo",
+        "salario": salario_final
+    }
+    db["Fato_Contratos"].append(contract_data)
