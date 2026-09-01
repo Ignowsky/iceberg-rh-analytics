@@ -10,3 +10,4 @@ fastparquet
 duckdb
 db-types
 python-dotenv
+calendar

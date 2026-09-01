@@ -13,6 +13,7 @@ import sys
 import json
 import random
 import math
+import calendar
 import pandas as pd
 
 # ================================
@@ -80,6 +81,23 @@ tabela_cargos_referencia = {
     "Coordenador": {"midpoint": 14000, "peso_hc": 0.08},
     "Gerente": {"midpoint": 22000, "peso_hc": 0.04}
 }
+
+# ==============================================================
+# 2.5º Geração de dados aleatórios de data
+# ==============================================================
+def get_random_date_in_month(ref_date: date) -> date:
+    """
+    Gera uma data aleatória dentro do mês especificado.
+    
+    Args:
+        ref_date (date): Data de referência para o mês e ano desejados.
+        
+    Returns:
+        date: Uma data aleatória dentro do mesmo mês e ano da data de referência.
+    """
+    _, last_day = calendar.monthrange(ref_date.year, ref_date.month)
+    random_day = random.randint(1, last_day)
+    return date(ref_date.year, ref_date.month, random_day)
 
 # ==============================================================
 # 3º Motores de Calculos e Funções Auxiliares
@@ -345,7 +363,8 @@ def main():
     
     # Este loop roda apenas para os 1000 iniciais
     for _ in range(1000):
-        admit_employee(date(2010, 1, 1), is_carga_inicial=True)
+        data_admissao_random = get_random_date_in_month(date(2010,1,1))
+        admit_employee(data_admissao_random, is_carga_inicial = True)
         
     # --- AS VARIÁVEIS ABAIXO AGORA ESTÃO FORA DO 'FOR' ---
     start_date = date(2010, 1, 1)
@@ -377,8 +396,9 @@ def main():
                 # Crise cancela até 80% das vagas de reposição que estavam abertas
                 for req in vagas_abertas:
                     if random.random() < 0.80:
+                        data_cancelamento = get_random_date_in_month(current_date)
                         req["status"] = "Cancelada"
-                        req["data_fechamento"] = current_date.isoformat()
+                        req["data_fechamento"] = data_cancelamento.isoformat()
                 # Atualiza a lista após os cancelamentos
                 vagas_abertas = [r for r in db["Fato_Requisicoes_Vagas"] if r["status"] == "Aberta"]
                 
@@ -388,9 +408,10 @@ def main():
                 cargos_target = [c for c in dim_cargos_data if c["departamento"] == office_target["departamento"]]
                 cargo_target = random.choices(cargos_target, weights = [c["peso_contratacao"] for c in cargos_target], k = 1)[0]
                 
+                data_abertura = get_random_date_in_month(current_date)
                 db["Fato_Requisicoes_Vagas"].append({
                     "id_requisicao": requisicao_id_seq, 
-                    "data_abertura": current_date.isoformat(),
+                    "data_abertura": data_abertura.isoformat(),
                     "data_fechamento": None, 
                     "tipo_vaga": "Aumento de Quadro",
                     "id_area": office_target["id_area"], 
@@ -408,9 +429,10 @@ def main():
                 
                 for req in vagas_selecionadas:
                     # Contrata o perfil exato que a vaga pede e amarra os IDs
-                    id_novo_colaborador = admit_employee(current_date, req_area_id=req["id_area"], req_cargo_id=req["id_cargo"])
+                    data_fechamento = get_random_date_in_month(current_date)
+                    id_novo_colaborador = admit_employee(data_fechamento, req_area_id=req["id_area"], req_cargo_id=req["id_cargo"])
                     req["status"] = "Preenchida"
-                    req["data_fechamento"] = current_date.isoformat()
+                    req["data_fechamento"] = data_fechamento.isoformat()
                     req["id_contrato_preenchimento"] = id_novo_colaborador
                 
             # --- 2. LOOP INTRA-MÊS BLINDADO COM list() ---
@@ -433,22 +455,25 @@ def main():
                 # (B) Burnout Mental
                 state["overtime_history"].pop(0)
                 state["overtime_history"].append(horas_extras)
+                
+                data_afast_saude = get_random_date_in_month(current_date)
                 if sum(state["overtime_history"]) > 60:
                     state["enps_group"] = "Detrator"
                     if random.random() < 0.05:
                         db["Fato_Movimentacoes"].append({
-                            "id_contrato": emp_id, "data_evento": current_date.isoformat(), "tipo_evento": "Afastamento_Saude",
+                            "id_contrato": emp_id, "data_evento": data_afast_saude.isoformat(), "tipo_evento": "Afastamento_Saude",
                             "id_cargo_anterior": cargo_atual_id, "id_cargo_novo": cargo_atual_id,
                             "salario_anterior": salario_atual, "salario_novo": salario_atual,
                             "perc_aumento": 0.0, "ganho_efetivo": 0.0
                         })
                         
                 # (C) Sazonalidades (Clima e 9-Box)
+                data_pesquisa_clima = get_random_date_in_month(current_date)
                 if is_clima_month:
                     nota = random.randint(1, 6) if (state["distance_km"] > 30 and state["enps_group"] == "Detrator") else random.randint(5, 10)
                     grupo = "Detrator" if nota <= 6 else "Neutro" if nota <= 8 else "Promotor"
                     state["enps_group"] = grupo
-                    db["Fato_Pesquisa_Clima"].append({"id_contrato": emp_id, "data": current_date.isoformat(), "nota_enps": nota, "grupo": grupo})
+                    db["Fato_Pesquisa_Clima"].append({"id_contrato": emp_id, "data": data_pesquisa_clima.isoformat(), "nota_enps": nota, "grupo": grupo})
                 
                 if is_nov:
                     desempenho, potencial = random.randint(1, 5), random.randint(1, 5)
@@ -459,7 +484,8 @@ def main():
                 # (D) Dissídio, Mérito e Promoção
                 if is_may:
                     novo_salario = round(salario_atual * 1.05, 2)
-                    record_movement(emp_id, current_date.isoformat(), "Dissídio", cargo_atual_id, cargo_atual_id, salario_atual, novo_salario)
+                    data_dissidio = get_random_date_in_month(current_date)
+                    record_movement(emp_id, data_dissidio.isoformat(), "Dissídio", cargo_atual_id, cargo_atual_id, salario_atual, novo_salario)
                     c["salario"] = novo_salario
                     salario_atual = novo_salario
                     
@@ -473,7 +499,8 @@ def main():
                     if salario_atual < (cargo_obj["faixa_100_mid"] * 1.15):
                         if random.random() < 0.15:
                             novo_salario = min(round(salario_atual * random.uniform(1.05, 1.10), 2), teto_faixa)
-                            record_movement(emp_id, current_date.isoformat(), "Mérito", cargo_atual_id, cargo_atual_id, salario_atual, novo_salario)
+                            data_merito = get_random_date_in_month(current_date)
+                            record_movement(emp_id, data_merito.isoformat(), "Mérito", cargo_atual_id, cargo_atual_id, salario_atual, novo_salario)
                             c["salario"] = novo_salario
                             state["months_since_promo"] = 0
                     else:
@@ -481,7 +508,8 @@ def main():
                             novo_cargo_id = min(cargo_atual_id + 1, len(dim_cargos_data))
                             novo_cargo_obj = next(cg for cg in dim_cargos_data if cg["id_cargo"] == novo_cargo_id)
                             novo_salario = round(max(salario_atual * 1.10, novo_cargo_obj["faixa_80_min"]), 2)
-                            record_movement(emp_id, current_date.isoformat(), "Promoção", cargo_atual_id, novo_cargo_id, salario_atual, novo_salario)
+                            data_promo = get_random_date_in_month(current_date)
+                            record_movement(emp_id, data_promo.isoformat(), "Promoção", cargo_atual_id, novo_cargo_id, salario_atual, novo_salario)
                             c["salario"], c["id_cargo"] = novo_salario, novo_cargo_id
                             state["months_since_promo"] = 0
                             
@@ -504,15 +532,17 @@ def main():
                     cargo_id_saida = active_employees[emp_id]["contract"]["id_cargo"]
                     salario_saida = active_employees[emp_id]["contract"]["salario"]
                     
+                    data_demissao = get_random_date_in_month(current_date)
                     active_employees[emp_id]["contract"]["status"] = "Desligado"
-                    active_employees[emp_id]["contract"]["data_demissao"] = current_date.isoformat()
+                    active_employees[emp_id]["contract"]["data_demissao"] = data_demissao.isoformat()
                     
-                    record_movement(emp_id, current_date.isoformat(), motivo, cargo_id_saida, cargo_id_saida, salario_saida, 0.0)
+                    
+                    record_movement(emp_id, data_demissao.isoformat(), motivo, cargo_id_saida, cargo_id_saida, salario_saida, 0.0)
                     del active_employees[emp_id]
                     
                     # ABRE A VAGA DE REPOSIÇÃO (BACKFILL)
                     db["Fato_Requisicoes_Vagas"].append({
-                        "id_requisicao": requisicao_id_seq, "data_abertura": current_date.isoformat(),
+                        "id_requisicao": requisicao_id_seq, "data_abertura": data_demissao.isoformat(),
                         "data_fechamento": None, "tipo_vaga": "Substituição",
                         "id_area": area_id_saida, "id_cargo": cargo_id_saida,
                         "status": "Aberta", "id_contrato_preenchimento": None
