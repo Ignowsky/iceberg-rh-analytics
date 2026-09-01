@@ -164,7 +164,7 @@ def test_dominio_pesquisa_clima(load_bronze_data):
     assert len(df_clima) > 0, "A tabela Fato_Pesquisa_Clima está vazia."
     assert df_clima["nota_enps"].between(1, 10).all(), "Existem notas de eNPS fora do interalo pre-definido de 1 a 10"
     
-    grupos_validos = {"Detratos", "Neutro", "Promotor"}
+    grupos_validos = {"Detrator", "Neutro", "Promotor"}
     assert set(df_clima["grupo"].unique()).issubset(grupos_validos), "Encontrados grupos de eNPS desconhecidos."
     
 def test_consistencia_9box(load_bronze_data):

@@ -6,3 +6,6 @@ pytest-html
 pandas-gbq
 google-cloud-bigquery
 datetime
+fastparquet
+duckdb
+db-types
