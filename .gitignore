@@ -10,3 +10,5 @@ __pycache__/
 *.parquet
 *.json
 *.csv
+gcp_key.json
+.env
