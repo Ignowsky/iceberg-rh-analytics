@@ -1,0 +1,17 @@
+version: 2
+
+sources:
+  - name: hr_bronze
+    database: iceberg-rh-analytics
+    schema: bronze__iceberg_rh_analytics
+    description: "Camada Raw/Bronze contendo os dados brutos e imutáveis gerados pelo simulador Icerberg RH"
+    tables:
+      - name: Dim_Pessoas
+      - name: Dim_Cargos
+      - name: Dim_Estrutura
+      - name: Fato_Contratos
+      - name: Fato_Movimentacoes
+      - name: Fato_Pesquisa_Clima
+      - name: Fato_Avaliacao_9box
+      - name: Fato_Snapshot_Mensal
+      - name: Fato_Requisicoes_Vagas
