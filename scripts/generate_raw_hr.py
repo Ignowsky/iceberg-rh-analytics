@@ -1,6 +1,6 @@
 """
 Projeto Iceberg - RH: People Analytics & Data Simulator
-Módulo: Geração da camada de dados Bronze (Simulação de Ecossistema)
+Módulo: Geração da camada de dados raw (Simulação de Ecossistema)
 Descrição: Script para gerar dados simulados de Rh, utilizando a biblioteca faker, por se tratar da camada não teremos tratamentos complexos e tipagem de dados, realizaremos a carga inicial com os dados originais.
 """
 
@@ -30,7 +30,7 @@ from loguru import logger
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..'))
 
-BASE_DIR = os.path.join(PROJECT_ROOT, 'data', 'bronze')
+BASE_DIR = os.path.join(PROJECT_ROOT, 'data', 'raw')
 LOG_DIR = os.path.join(PROJECT_ROOT, 'logs')
 
 # Configuração do loguru
