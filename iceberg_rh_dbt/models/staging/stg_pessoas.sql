@@ -9,7 +9,7 @@ WITH source AS (
 
 renamed_and_casted AS (
     SELECT 
-        CAST(id_pessoa as INT) AS sk_pessoa,
+        CAST(id_pessoa as INT64) AS sk_pessoa,
         nome as nome_completo,
         cpf,
         CAST(data_nascimento AS DATE) AS data_nascimento,
@@ -18,6 +18,10 @@ renamed_and_casted AS (
         raca_cor,
         CAST(is_pcd AS BOOLEAN) AS is_pcd,
         tipo_deficiencia,
+        estado_sigla,
+        cidade,
+        CAST(latitude AS FLOAT64) AS latitude,
+        CAST(longitude AS FLOAT64) AS longitude,
         dependentes as dependentes_json
     FROM source
 )

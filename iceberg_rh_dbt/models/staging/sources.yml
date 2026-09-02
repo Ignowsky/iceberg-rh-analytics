@@ -13,5 +13,6 @@ sources:
       - name: Fato_Movimentacoes
       - name: Fato_Pesquisa_Clima
       - name: Fato_Avaliacao_9box
+      - name: Fato_Ponto
       - name: Fato_Snapshot_Mensal
       - name: Fato_Requisicoes_Vagas
