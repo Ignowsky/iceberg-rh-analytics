@@ -6,7 +6,6 @@
 ![BigQuery](https://img.shields.io/badge/BigQuery-Data_Warehouse-4285F4)
 ![Power BI](https://img.shields.io/badge/Power_BI-Semantic_Model-F2C811)
 
-> *"A ponta de um iceberg apenas mostra o porque, mas oque está submerso que demonstra o verdadeiro perigo"*
 
 ## Visão Geral (O Produto Entregavel)
 O **Iceberg RH** é uma arquitetura de dados *End-to-End* que simula, a ingestão, transformação e analise de dados de um ecossistema corporativo completo (ATS, Core HR, LMS e Ponto).
