@@ -26,7 +26,7 @@ DBX_TOKEN = os.getenv("DATABRICKS_TOKEN")
 DBX_HTTP_PATH = os.getenv("DATABRICKS_HTTP_PATH")
 CATALOG = os.getenv("DBX_CATALOG")
 SCHEMA = os.getenv("DBX_SCHEMA_BRONZE")
-VOLUME = os.getenv("DBX_VOLYME")
+VOLUME = os.getenv("DBX_VOLUME")
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..'))
