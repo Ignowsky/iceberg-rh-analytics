@@ -32,7 +32,7 @@ def main():
     run_data_quality_tests()
     
     # etapa 3: Ingestão de Dados para o Bigquery (Camada Bronze)
-    logger.info("[INFO] - Iniciando a Ingestão de Dados para o Bigquery (Camada Bronze)")
+    logger.info("[INFO] - Iniciando a Ingestão de Dados para o Databricks (Camada Raw)")
     run_bronze_ingestion()
     
     logger.success("[SUCCESS] - Geração de Dados, validação de testes e ingestão de dados concluídas com sucesso.")
