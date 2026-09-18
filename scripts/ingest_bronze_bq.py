@@ -10,9 +10,9 @@ import json
 import sys
 # importações de bibliotecas externas
 import pandas as pd
-# importações de bibliotecas do Google Cloud
-from google.cloud import bigquery
-from google.oauth2 import service_account
+# importações de bibliotecas do Databricks
+from databricks.sdk import WorkspaceClient
+from databricks.sql import connect as sql_connect
 from dotenv import load_dotenv
 # Importações de bibliotecas de logging
 from loguru import logger
@@ -20,9 +20,13 @@ from loguru import logger
 # Carregando as váriaveis de ambiente do arquivo .env
 load_dotenv()
 
-# Configuração do Diretório base do Projeto e Gcp
-GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID")
-BQ_DATASET_BRONZE = os.getenv("BQ_DATASET_BRONZE")
+# Configuração das variáveis de ambiente do Databricks
+DBX_HOST = os.getenv("DATABRICKS_HOST")
+DBX_TOKEN = os.getenv("DATABRICKS_TOKEN")
+DBX_HTTP_PATH = os.getenv("DATABRICKS_HTTP_PATH")
+CATALOG = os.getenv("DBX_CATALOG")
+SCHEMA = os.getenv("DBX_SCHEMA_BRONZE")
+VOLUME = os.getenv("DBX_VOLYME")
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..'))
@@ -37,11 +41,35 @@ logger.add(os.path.join(LOG_DIR, "hr_pipeline_{time:YYYY-MM-DD}.log"), rotation 
 
 # Configuração do cliente Bigquery
 try:
-    credentials = service_account.Credentials.from_service_account_file(KEY_PATH)
-    client = bigquery.Client(credentials=credentials, project=GCP_PROJECT_ID)
-except FileNotFoundError:
-    logger.error(f"Arquivo de credenciais não encontrado em: {KEY_PATH}")
-    raise
+    w = WorkspaceClient(
+        host = DBX_HOST,
+        token = DBX_TOKEN
+    )
+except Exception as e:
+    logger.error(f"[ERROR] - Falha ao autenticar no Databricks Workspace. {e}")
+
+def execute_databricks_sql(query: str):
+    """
+    Executa um comando SQL diretamente no motor Photon do Databricks
+    """
+    
+    with sql_connect(server_hostname = DBX_HOST, http_path = DBX_HTTP_PATH, access_token = DBX_TOKEN) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(query)
+            
+
+def upload_to_volume(local_path: str, file_name: str) -> str:
+    """
+    Realiza o upload do arquivo físico para o Unity Catalog Volume.
+    """
+    volume_path = f"/Volumes/{CATALOG}/{SCHEMA}/{VOLUME}/{file_name}"
+    logger.info(f"[INFO] - Realizando o upload do arquivo físico para o volume: {volume_path}")
+    
+    with open(local_path, "rb") as f:
+        w.files.upload(volume_path, f, overwrite = True)
+    
+    return volume_path
+    
 
 def ingest_parquet_native(file_name: str, table_name: str):
     """
@@ -51,21 +79,21 @@ def ingest_parquet_native(file_name: str, table_name: str):
         table_name (str): Nome da tabela destino no Bigquery
     """
     
-    file_path = os.path.join(BASE_DIR, file_name)
-    table_id = f"{GCP_PROJECT_ID}.{BQ_DATASET_BRONZE}.{table_name}"
+    local_path = os.path.join(BASE_DIR, file_name)
+    table_full_name = f"{CATALOG}.{SCHEMA}.{table_name}"
     
-    job_config = bigquery.LoadJobConfig(
-        source_format = bigquery.SourceFormat.PARQUET,
-        write_disposition = bigquery.WriteDisposition.WRITE_TRUNCATE,
-        autodetect = True
-    )
+    volume_path = upload_to_volume(local_path, file_name)
     
-    logger.info(f"[INFO] - Iniciando a ingestão do arquivo {file_name} para a tabela {table_id}")
-    with open(file_path, "rb") as source_file:
-        job = client.load_table_from_file(source_file, table_id, job_config = job_config)
+    logger.info(f"[INFO] - Realizando a materialização das tabelas deltas: {table_full_name}")
+    query = f"""
+        CREATE OR REPLACE TABLE {table_full_name}
+        AS SELECT *
+           FROM parquet.`{volume_path}`
+    """
     
-    job.result()
-    logger.success(f"[SUCCESS] - Ingestão do arquivo {file_name} para a tabela {table_id} concluída com sucesso.")
+    execute_databricks_sql(query)
+    logger.success(f"[SUCCESS] - Tabela {table_full_name} ingerida com sucesso na camada raw")
+    
     
 def ingest_json_native(file_name: str, table_name: str):
     """
@@ -75,36 +103,41 @@ def ingest_json_native(file_name: str, table_name: str):
         file_name (str): Nome do arquivo JSON a ser ingerido
         table_name (str): Nome da tabela destino no Bigquery
     """
+    local_path = os.path.join(BASE_DIR, file_name)
+    temp_parquet_path = os.path.join(BASE_DIR, f"temp_{table_name}.parquet")
+    table_full_name = f"{CATALOG}.{SCHEMA}.{table_name}"
     
-    file_path = os.path.join(BASE_DIR, file_name)
-    table_id = f"{GCP_PROJECT_ID}.{BQ_DATASET_BRONZE}.{table_name}"
+    logger.info(f"[INFO] - Tratando as complexidades do JSON localmente.")
     
-    logger.info(f"[INFO] - Iniciando a ingestão do arquivo {file_name} para a tabela {table_id}")
-    
-    with open(file_path, "r", encoding = "utf-8") as f:
+    with open(local_path, "r", encoding = "utf-8") as f:
         data = json.load(f)
         
     df = pd.DataFrame(data)
-    
-    # Convertendo os tipos complexos presentes no json para listas e dicionarios
     df['dependentes'] = df['dependentes'].apply(json.dumps)
     
-    job_config = bigquery.LoadJobConfig(
-        write_disposition = bigquery.WriteDisposition.WRITE_TRUNCATE,
-        autodetect = True
-    )
+    # Salvando temporariamente como parquet pra manter a tipagem
+    df.to_parquet(temp_parquet_path, engine = "pyarrow", index = False)
     
-    job = client.load_table_from_dataframe(df, table_id, job_config = job_config)
-    job.result()
+    volume_path = upload_to_volume(temp_parquet_path, f"{table_name}.parquet")
     
-    logger.success(f"[SUCCESS] - Ingestão do arquivo {file_name} para a tabela {table_id} concluída com sucesso.")
+    query = f"""
+        CREATE OR REPLACE TABLE {table_full_name}
+        SELECT *
+        FROM parquet.`{volume_path}`
+    """
+    
+    execute_databricks_sql(query)
+    
+    os.remove(temp_parquet_path)
+    logger.success(f"[SUCCESS - Tabela {table_full_name} ingerida com sucesso na camada raw")
+    
     
     
 def run_bronze_ingestion():
     """
     Função principal para realizar a ingestão dos arquivos da camada raw para a camada bronze no Bigquery.
     """
-    logger.info(f"[INFO] - Iniciando a ingestão da Camada Bronze no Bigquery, Target Dataset: {BQ_DATASET_BRONZE}")
+    logger.info(f"[INFO] - Iniciando a ingestão da Camada raw no Databricks Catalogo Target: {CATALOG}")
     
     arquivos_parquet = {
         "Dim_Estrutura.parquet": "Dim_Estrutura",
@@ -122,6 +155,6 @@ def run_bronze_ingestion():
         ingest_parquet_native(arquivo, tabela)
         
     ingest_json_native("Dim_Pessoas.json", "Dim_Pessoas")
-    logger.info(f"[INFO] - Ingestão da Camada Bronze Concluída com sucesso, Target Dataset: {BQ_DATASET_BRONZE}")
+    logger.info(f"[INFO] - Ingestão da Camada raw concluída Catalogo target: {CATALOG}")
     
     
