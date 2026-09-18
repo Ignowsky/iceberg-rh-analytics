@@ -357,7 +357,7 @@ def admit_employee(current_date: date, is_carga_inicial: bool = False, req_area_
 # ======================================================================
 # 6º Orquestração do tempo
 # =====================================================================
-def main():
+def run_data_generation():
     global requisicao_id_seq
     logger.info("Iniciando a Carga Inicial: 1.000 funcionários de base...")
     
@@ -388,7 +388,7 @@ def main():
             to_terminate = []
             
             # --- 1. MOTOR DE RECRUTAMENTO (CRIAR E FECHAR VAGAS) ---
-            taxa_crescimento = random.uniform(0.001, 0.003) 
+            taxa_crescimento = random.uniform(0.004, 0.008) 
             novas_vagas = int(len(active_employees) * taxa_crescimento)
             
             if current_date.year in [2015, 2016, 2020]:  
@@ -424,7 +424,7 @@ def main():
 
             # Recrutamento operando: Fecha entre 60% e 85% do pipeline do mês
             if vagas_abertas:
-                qtd_para_fechar = int(len(vagas_abertas) * random.uniform(0.60, 0.85))
+                qtd_para_fechar = int(len(vagas_abertas) * random.uniform(0.70, 0.92))
                 vagas_selecionadas = random.sample(vagas_abertas, qtd_para_fechar)
                 
                 for req in vagas_selecionadas:
@@ -444,7 +444,7 @@ def main():
                 # (A) Ponto e Burnout Físico
                 base_faltas = 0
                 if c["modelo_trabalho"] in ["Presencial", "Híbrido"] and state["distance_km"] > 30:
-                    base_faltas = random.choices([0, 8 ,16], weights = [0.6, 0.3, 0.1])[0]
+                    base_faltas = random.choices([0, 8, 16, 24, 36, 44], weights = [0.45, 0.25, 0.10, 0.10, 0.06, 0.04])[0]
                     
                 horas_extras = random.randint(0, 30)
                 db["Fato_Ponto"].append({
@@ -476,10 +476,18 @@ def main():
                     db["Fato_Pesquisa_Clima"].append({"id_contrato": emp_id, "data": data_pesquisa_clima.isoformat(), "nota_enps": nota, "grupo": grupo})
                 
                 if is_nov:
-                    desempenho, potencial = random.randint(1, 5), random.randint(1, 5)
-                    score = desempenho + potencial
-                    state["nine_box_score"] = score
-                    db["Fato_Avaliacao_9Box"].append({"id_contrato": emp_id, "ano": current_date.year, "desempenho": desempenho, "potencial": potencial, "score_total": score})
+                    desempenho = random.choices([1, 2, 3], weights = [0.15, 0.75, 0.10])[0]
+                    potencial = random.choices([1, 2, 3], weights = [0.13, 0.65, 0.22])[0]
+                    state["desempenho"] = desempenho
+                    state["potencial"] = potencial
+                    
+                                        
+                    db["Fato_Avaliacao_9Box"].append({
+                        "id_contrato": emp_id, 
+                        "ano": current_date.year, 
+                        "desempenho": desempenho, 
+                        "potencial": potencial
+                        })
                     
                 # (D) Dissídio, Mérito e Promoção
                 if is_may:
@@ -490,7 +498,7 @@ def main():
                     salario_atual = novo_salario
                     
                 state["months_since_promo"] += 1
-                is_elegivel = state["nine_box_score"] >= 8 and state["months_since_promo"] >= 12
+                is_elegivel = state.get("desempenho", 2) >= 2 and state.get("pontecial", 2) >= 2 and state.get("months_sice_promo", 0) >= 12
                 
                 if is_elegivel:
                     cargo_obj = next(cg for cg in dim_cargos_data if cg["id_cargo"] == cargo_atual_id)
@@ -515,14 +523,16 @@ def main():
                             
                 # --- 3. REGRAS DE TURNOVER (A MAGIA DO NEGÓCIO) ---
                 # Turnover Involuntário (Baixo Desempenho no 9-Box)
-                if state["nine_box_score"] <= 4 and current_date.month in [1, 2]: # Demissões costumam ocorrer após o fechamento do ano
-                    if random.random() < 0.20: # 20% de chance de corte
+                if state.get("desempenho", 2) == 1 or state.get("potencial", 2) == 1 and current_date.month in [1, 2]:
+                    if random.random() < 0.20:
                         to_terminate.append((emp_id, "Demissão Sem Justa Causa"))
                         continue
                         
                 # Fuga de Talentos Voluntária
-                if is_elegivel and state["enps_group"] == "Detrator" and salario_atual >= (dim_cargos_data[cargo_atual_id-1]["faixa_130_max"] * 0.95):
-                    if random.random() < 0.08:
+                is_talento = (state.get("desempenho", 2) == 3 and state.get("potencial", 2) == 3)
+                if state.get("enps_group", "Neutro") == "Detrator" and salario_atual >= (dim_cargos_data[cargo_atual_id-1]["faixa_130_max"] * 0.95):
+                    probabilidade_saida = 0.0025 if is_talento else 0.01
+                    if random.random() < probabilidade_saida:
                         to_terminate.append((emp_id, "Desligamento Voluntário"))
                         
                 # --- 4. EFETIVAÇÃO DOS DESLIGAMENTOS E GERAÇÃO DE VAGAS ---
@@ -552,7 +562,6 @@ def main():
             str_competencia = current_date.strftime("%Y-%m")    
             
             # [Restante do Snapshot Mensal e Salvamento Parquet continuam idênticos]    
-            
             for emp_id, state in active_employees.items():
                 db["Fato_Snapshot_Mensal"].append({
                     "competencia": str_competencia,
@@ -561,7 +570,8 @@ def main():
                     "id_area": state["contract"]["id_area"],
                     "salario_vigente": state["contract"]["salario"],
                     "enps_group": state["enps_group"],
-                    "nine_box_score": state["nine_box_score"]
+                    "desempenho": state.get("desempenho", 2),
+                    "potencial": state.get("potencial", 2)
                 })
                 
             current_date += relativedelta(months = 1)
@@ -584,5 +594,3 @@ def main():
                 
     logger.success("[SUCESSO] Geração de arquivos concluída com sucesso! Camada Raw (Parquet/Json) populada.")
             
-if __name__ == "__main__":
-    main()

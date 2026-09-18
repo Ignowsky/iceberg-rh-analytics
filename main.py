@@ -8,6 +8,8 @@ import os
 import sys
 from loguru import logger
 from scripts.ingest_bronze_bq import run_bronze_ingestion
+from scripts.generate_raw_hr import run_data_generation
+from tests.test_raw_quality import run_data_quality_tests
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..'))
@@ -24,10 +26,10 @@ def main():
     logger.info("[INFO] - Iniciando o Orquestrador Principal do Projeto Iceberg RH")
     
     #  Etapa 1: Geração de Dados (Conectar futuramente)
-    # run_data_generation()
+    run_data_generation()
     
-    #  Etapa 2: Validação de Qualidade de Dados (Conectar futuramente)
-    # run_data_quality_tests()
+    # Etap 2: Bateria de testes na camada bronze
+    run_data_quality_tests()
     
     # etapa 3: Ingestão de Dados para o Bigquery (Camada Bronze)
     logger.info("[INFO] - Iniciando a Ingestão de Dados para o Bigquery (Camada Bronze)")
