@@ -5,10 +5,10 @@ WITH source AS (
 ),
 renamed_and_casted AS (
     SELECT
-        FARM_FINGERPRINT(CONCAT(CAST(id_contrato AS STRING), '-', CAST(data AS STRING))) AS sk_pesquisa_clima,
-        CAST(id_contrato AS INT64) AS sk_contrato,
+        MD5(CONCAT(CAST(id_contrato AS STRING), '-', CAST(data AS STRING))) AS sk_pesquisa_clima,
+        CAST(id_contrato AS INT) AS sk_contrato,
         CAST(data AS DATE) AS data_pesquisa_clima,
-        CAST(nota_enps AS INT64) nota_enps,
+        CAST(nota_enps AS INT) nota_enps,
         grupo
     FROM source
 )
