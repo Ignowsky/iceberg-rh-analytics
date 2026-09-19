@@ -2,9 +2,9 @@ version: 2
 
 sources:
   - name: hr_bronze
-    database: iceberg-rh-analytics
-    schema: bronze__iceberg_rh_analytics
-    description: "Camada Raw/Bronze contendo os dados brutos e imutáveis gerados pelo simulador Icerberg RH"
+    database: iceberg_rh
+    schema: raw
+    description: "Camada Raw/Bronze contendo os dados brutos e imutáveis (formato Delta) ingeridos no Databricks Unity Catalog"
     tables:
       - name: Dim_Pessoas
       - name: Dim_Cargos

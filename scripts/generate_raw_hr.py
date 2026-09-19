@@ -50,6 +50,21 @@ random.seed(42)  # Semente para garantir reprodutibilidade dos dados aleatórios
 # 2º Definição dos metadados e regras de negócio para a geração de dados simulados
 # ==============================================================
 
+
+# Criando a matriz de preços da ANS
+tabela_ans_saude = {
+    18: 350.00,
+    23: 420.00,
+    28: 504.00,
+    33: 604.00,
+    38: 725.76,
+    43: 830.91,
+    48: 1045.09,
+    53: 1254.11,
+    58: 1504.93,
+    999: 1805.91
+}
+
 # Criando a matriz geográfica
 # A declaração 'peso_volume' é oque dita a densidade populacional de cada estado, ou seja, quanto maior o peso, maior a quantidade de colaboraores simulados
 escritorios_base = [
@@ -172,7 +187,11 @@ def record_movement(emp_id: int, data_evento: str, tipo_evento: str,
         "ganho_efetivo": round(ganho_efetivo, 2)
     })
     
-    
+def calcular_custo_plano_saude(idade: int) -> float:
+    for limite_idade, valor in tabela_ans_saude.items():
+        if idade <= limite_idade:
+            return valor
+    return tabela_ans_saude[999]
 
 # ==========================================================================
 # 4º Geração do Modelo Dimensional Simulado (Star schema)
@@ -225,7 +244,9 @@ db: Dict[str, List[Dict[str, Any]]] = {
     "Fato_Pesquisa_Clima": [],
     "Fato_Movimentacoes": [],
     "Fato_Snapshot_Mensal": [],
-    "Fato_Requisicoes_Vagas": []
+    "Fato_Requisicoes_Vagas": [],
+    "Fato_Custo_Beneficios": [],
+    "Fato_Vidas_Beneficios": [],
 }
 
 active_employees: Dict[int, Dict[str, Any]] = {}
@@ -290,26 +311,85 @@ def admit_employee(current_date: date, is_carga_inicial: bool = False, req_area_
     else:
         # Se for false mantém como none
         tipo_deficiencia = None
+        
+    nivel_cargo = cargo["nivel_hierarquico"]
     
+    if nivel_cargo in ["Gerente", "Coordenador", "Especialistas"]:
+        escolaridade = random.choices(
+            ["Superior Completo", "Pós-Graduação/MBA", "Mestrado/Doutorado"],
+            weights = (0.10, 0.70, 0.40)
+        )[0]
+        
+        
+    elif nivel_cargo == "Analista Sênior (III)":
+        escolaridade = random.choices(
+            ["Superior Completo", "Pós-Graduação/MBA"],
+            weights = [0.60, 0.40]
+        )[0]
+    
+    elif nivel_cargo == "Analista Pleno (II)":
+        escolaridade = random.choices(
+            ["Superior Incompleto", "Superior Completo", "Pós-Graduação/MBA"],
+            weights = [0.10, 0.80, 0.10]
+        )[0]
+    
+    elif nivel_cargo == "Analista Junior (I)":
+        escolaridade = random.choices(
+            ["Ensino Médio", "Superior Incompleto", "Superior Completo"],
+            weights = [0.10, 0.50, 0.40]
+        )[0]
+    
+    else:
+        escolaridade = random.choices(
+            ["Ensino Fundamental", "Ensino Médio", "Superior Incompleto"],
+            weights = [0.10, 0.70, 0.20]
+        )[0]
+        
+        
+    # Geração de dependentes com data_nascimento
+    idade_na_admissao = random.randint(18, 60)
+    data_nasc_titular = current_date - relativedelta(years = idade_na_admissao)
+
+    dependentes_lista = []
+    
+    for _ in range(random.randint(0,2)):
+        tipo_dep = random.choices(["Cônjuge", "Filhos(a)"], weights = [0.40, 0.60])[0]
+        if tipo_dep == "Cônjuge":
+            ano_dep = data_nasc_titular.year + random.randint(-5, 5)
+            mes_dep = data_nasc_titular.month
+            dia_dep = data_nasc_titular.day
+            
+            if mes_dep == 2 and dia_dep == 29 and not calendar.isleap(ano_dep):
+                dia_dep = 28
+            data_nasc_dep = date(ano_dep, mes_dep, dia_dep)
+        else:
+            ano_dep = data_nasc_titular.year + random.randint(18, 40)
+            data_nasc_dep = date(ano_dep, random.randint(1,12), random.randint(1,28))
+            
+        dependentes_lista.append({
+            "nome": fake.first_name(),
+            "parentesco": tipo_dep,
+            "data_nascimento": data_nasc_dep.isoformat()
+        })
+    
+    nome_titular_gerado = fake.name()
     db["Dim_Pessoas"].append({
         "id_pessoa": person_id_seq,
-        "nome": fake.name(),
+        "nome": nome_titular_gerado,
         "cpf": fake.cpf(),
-        "data_nascimento": fake.date_of_birth(
-            minimum_age = 18,
-            maximum_age = 75
-        ).isoformat(),
+        "data_nascimento": data_nasc_titular.isoformat(),
         "sexo_biologico": sexo,
         "identidade_genero": id_genero,
         "orientacao_sexual": orientacao,
         "raca_cor": raca,
         "is_pcd": is_pcd,
         "tipo_deficiencia": tipo_deficiencia,
+        "escolaridade": escolaridade,
         "estado_sigla": office["estado_sigla"],
         "cidade": office["cidade_escritorio"],
         "latitude": p_lat,
         "longitude": p_lon,
-        "dependentes": [{"nome": fake.first_name()} for _ in range(random.randint(0, 2))]
+        "dependentes": dependentes_lista
     })
     
     
@@ -346,7 +426,10 @@ def admit_employee(current_date: date, is_carga_inicial: bool = False, req_area_
         "overtime_history": [0, 0, 0],
         "enps_group": "Neutro",
         "nine_box_score": random.randint(3 ,7) if is_carga_inicial else 5,
-        "months_since_promo": int(anos_de_casa_simulado * 12)
+        "months_since_promo": int(anos_de_casa_simulado * 12),
+        "data_nasc_titular": data_nasc_titular.isoformat(),
+        "dependentes_lista": dependentes_lista,
+        "nome_titular": nome_titular_gerado
     }
     id_gerado = contract_id_seq
     person_id_seq += 1
@@ -521,6 +604,63 @@ def run_data_generation():
                             c["salario"], c["id_cargo"] = novo_salario, novo_cargo_id
                             state["months_since_promo"] = 0
                             
+                # (E) Faturamento mensal de Benefícios
+                nome_titular = state["nome_titular"]
+                data_nasc_titular = datetime.fromisoformat(state["data_nasc_titular"]).date()
+                dependentes_lista = state["dependentes_lista"]
+                chave_agrupamento = f"FAM-{emp_id}"
+                
+                idade_titular_mensal = (current_date - data_nasc_titular).days  // 365
+                custo_saude_titular = calcular_custo_plano_saude(idade_titular_mensal)
+                
+                db["Fato_Vidas_Beneficios"].append({
+                    "competencia": current_date.strftime("%Y-%m"),
+                    "id_contrato": emp_id,
+                    "chave_familia": chave_agrupamento,
+                    "nome_titular": nome_titular,
+                    "nome_beneficiario": nome_titular,
+                    "parentesco": "Titular",
+                    "idade_vigente": idade_titular_mensal,
+                    "custo_saude":round(custo_saude_titular),
+                    "custo_odonto": 56.52
+                })
+                
+                custo_saude_dependentes = 0.0
+                vidas_odonto = 1
+                
+                for dep in dependentes_lista:
+                    data_nasc_dep = datetime.fromisoformat(dep["data_nascimento"]).date()
+                    idade_dep = (current_date - data_nasc_dep).days // 365
+                    
+                    if idade_dep >= 0:
+                        custo_saude_dependentes += calcular_custo_plano_saude(idade_dep)
+                        vidas_odonto += 1
+                        
+                        db["Fato_Vidas_Beneficios"].append({
+                        "competencia": current_date.strftime("%Y-%m"),
+                        "id_contrato": emp_id,
+                        "chave_familia": chave_agrupamento,
+                        "nome_titular": nome_titular,
+                        "nome_beneficiario": dep["nome"],
+                        "parentesco": dep["parentesco"],
+                        "idade_vigente": idade_dep,
+                        "custo_saude":round(custo_saude_titular),
+                        "custo_odonto": 56.52
+                        })
+                    
+                custo_odonto_total = 56.52 * vidas_odonto
+                custo_va = 1622.00
+                
+                db["Fato_Custo_Beneficios"].append({
+                    "competencia": current_date.strftime("%Y-%m"),
+                    "id_contrato": emp_id,
+                    "custo_saude_titular": round(custo_saude_titular, 2),
+                    "custo_saude_dependentes": round(custo_saude_dependentes, 2),
+                    "custo_odonto": round(custo_odonto_total, 2),
+                    "custo_vale_alimentacao": round(custo_va, 2),
+                    "custo_total_beneficios": round(custo_saude_titular + custo_saude_dependentes + custo_odonto_total + custo_va, 2)
+                })
+                            
                 # --- 3. REGRAS DE TURNOVER (A MAGIA DO NEGÓCIO) ---
                 # Turnover Involuntário (Baixo Desempenho no 9-Box)
                 if state.get("desempenho", 2) == 1 or state.get("potencial", 2) == 1 and current_date.month in [1, 2]:
@@ -588,6 +728,8 @@ def run_data_generation():
     pd.DataFrame(db["Fato_Avaliacao_9Box"]).to_parquet(f"{BASE_DIR}/Fato_Avaliacao_9box.parquet")
     pd.DataFrame(db["Fato_Requisicoes_Vagas"]).to_parquet(f"{BASE_DIR}/Fato_Requisicoes_Vagas.parquet")
     pd.DataFrame(db["Fato_Snapshot_Mensal"]).to_parquet(f"{BASE_DIR}/Fato_Snapshot_Mensal.parquet")
+    pd.DataFrame(db["Fato_Custo_Beneficios"]).to_parquet(f"{BASE_DIR}/Fato_Custo_Beneficios.parquet")
+    pd.DataFrame(db["Fato_Vidas_Beneficios"]).to_parquet(f"{BASE_DIR}/Fato_Vidas_Beneficios.parquet")
             
     with open(f"{BASE_DIR}/Dim_Pessoas.json", "w", encoding = "utf-8") as f:
         json.dump(db["Dim_Pessoas"], f, ensure_ascii = False, indent = 2)

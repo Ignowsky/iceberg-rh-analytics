@@ -5,15 +5,15 @@ WITH source AS (
 ),
 renamed_and_casted AS (
     SELECT 
-        CAST(id_contrato AS INT64) AS sk_contrato,
+        CAST(id_contrato AS INT) AS sk_contrato,
         CAST(data_evento AS DATE) AS data_evento,
         tipo_evento,
-        CAST(id_cargo_anterior AS INT64) AS sk_cargo_anterior,
-        CAST(id_cargo_novo AS INT64) AS sk_novo_cargo,
-        CAST(salario_anterior AS FLOAT64) AS salario_anterior,
-        CAST(salario_novo AS FLOAT64) AS salario_novo,
-        CAST(perc_aumento AS FLOAT64) AS percentual_aumento,
-        CAST(ganho_efetivo AS FLOAT64) AS ganho_efetivo
+        CAST(id_cargo_anterior AS INT) AS sk_cargo_anterior,
+        CAST(id_cargo_novo AS INT) AS sk_novo_cargo,
+        CAST(salario_anterior AS FLOAT) AS salario_anterior,
+        CAST(salario_novo AS FLOAT) AS salario_novo,
+        CAST(perc_aumento AS FLOAT) AS percentual_aumento,
+        CAST(ganho_efetivo AS FLOAT) AS ganho_efetivo
     FROM source
 )
 SELECT *
