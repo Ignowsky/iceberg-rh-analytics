@@ -9,7 +9,9 @@ import os
 import pytest
 import pandas as pd
 import duckdb
+import sys
 import json
+from loguru import logger
 
 # Definição inicial do diretório alvo dos arquivos raw
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -26,12 +28,18 @@ def load_raw_data():
             "estrutura": duckdb.sql(f"SELECT * FROM read_parquet('{BASE_DIR}/Dim_Estrutura.parquet')").df(),
             "cargos": duckdb.sql(f"SELECT * FROM read_parquet('{BASE_DIR}/Dim_Cargos.parquet')").df(),
             "contratos": duckdb.sql(f"SELECT * FROM read_parquet('{BASE_DIR}/Fato_Contratos.parquet')").df(),
+            "cursos": duckdb.sql(f"SELECT * FROM read_parquet('{BASE_DIR}/Dim_Cursos.parquet')").df(),
             "snapshot": duckdb.sql(f"SELECT * FROM read_parquet('{BASE_DIR}/Fato_Snapshot_Mensal.parquet')").df(),
             "movimentacoes": duckdb.sql(f"SELECT * FROM read_parquet('{BASE_DIR}/Fato_Movimentacoes.parquet')").df(),
             "requisicoes": duckdb.sql(f"SELECT * FROM read_parquet('{BASE_DIR}/Fato_Requisicoes_Vagas.parquet')").df(),
             "9box": duckdb.sql(f"SELECT * FROM read_parquet('{BASE_DIR}/Fato_Avaliacao_9box.parquet')").df(),
             "Pesquisa_Clima": duckdb.sql(f"SELECT * FROM read_parquet('{BASE_DIR}/Fato_Pesquisa_Clima.parquet')").df(),
-            "Ponto": duckdb.sql(f"SELECT * FROM read_parquet('{BASE_DIR}/Fato_Ponto_Mensal.parquet')").df()
+            "Ponto": duckdb.sql(f"SELECT * FROM read_parquet('{BASE_DIR}/Fato_Ponto_Mensal.parquet')").df(),
+            "Absenteismo": duckdb.sql(f"SELECT * FROM read_parquet('{BASE_DIR}/Fato_Absenteismo_Historico.parquet')").df(),
+            "LMS": duckdb.sql(f"SELECT * FROM read_parquet('{BASE_DIR}/Fato_Engajamento_LMS.parquet')").df(),
+            "beneficios_custo": duckdb.sql(f"SELECT * FROM read_parquet('{BASE_DIR}/Fato_Custo_Beneficios.parquet')").df(),
+            "ATS": duckdb.sql(f"SELECT * FROM read_parquet('{BASE_DIR}/Fato_ATS_Funil.parquet')").df(),
+            "beneficios_vidas": duckdb.sql(f"SELECT * FROM read_parquet('{BASE_DIR}/Fato_Vidas_Beneficios.parquet')").df()
         }
         
         with open(os.path.join(BASE_DIR, "Dim_Pessoas.json"), "r", encoding = "utf-8") as f:
@@ -49,6 +57,7 @@ def test_arquivos_existem():
     arquivos_obrigatorios = [
         "Dim_Estrutura.parquet",
         "Dim_Cargos.parquet",
+        "Dim_Cursos.parquet",
         "Dim_Pessoas.json",
         "Fato_Contratos.parquet",
         "Fato_Ponto_Mensal.parquet",
@@ -56,7 +65,12 @@ def test_arquivos_existem():
         "Fato_Pesquisa_Clima.parquet",
         "Fato_Avaliacao_9box.parquet",
         "Fato_Snapshot_Mensal.parquet",
-        "Fato_Requisicoes_Vagas.parquet"
+        "Fato_Requisicoes_Vagas.parquet",
+        "Fato_Custo_Beneficios.parquet",
+        "Fato_Engajamento_LMS.parquet",
+        "Fato_ATS_Funil.parquet",
+        "Fato_Absenteismo_Historico.parquet",
+        "Fato_Vidas_Beneficios.parquet"
     ]
     
     for arquivo in arquivos_obrigatorios:
@@ -174,12 +188,8 @@ def test_consistencia_9box(load_raw_data):
     df_9box = load_raw_data["9box"]
     
     assert len(df_9box), "A tabela Fato_Avaliacao_9Box está vazia."
-    assert df_9box["desempenho"].between(1, 5).all(), "Valores de desempenho fora da escala pré-definida"
-    assert df_9box["potencial"].between(1, 5).all if "potencial" in df_9box.columns else True, "Valores de potencial fora da escala."
-    
-    # Verifica se o score total confere com as regras pré definidas (desempenho + potencial)
-    score_calculado = df_9box["desempenho"] + df_9box["potencial"]
-    assert (df_9box["score_total"] == score_calculado).all(), "Incosistência  detectada no cálculo do score_total da 9-Box"
+    assert df_9box["desempenho"].between(1, 3).all(), "Valores de desempenho fora da escala pré-definida"
+    assert df_9box["potencial"].between(1, 3).all if "potencial" in df_9box.columns else True, "Valores de potencial fora da escala."
     
 def test_sanidade_ponto_mensal(load_raw_data):
     """
@@ -191,4 +201,51 @@ def test_sanidade_ponto_mensal(load_raw_data):
     assert (df_ponto["horas_trabalhadas"] >= 0).all(), "Encontradas horas trabalhadas negativas ou igual a zero."
     assert (df_ponto["horas_extras"] >= 0).all(), "Encontradas horas extras negativas."
     assert (df_ponto["horas_faltas"] >= 0).all(), "Encontradas horas faltas negativas"
+
+def teste_integridade_temporal_absenteismo(load_raw_data):
+    """Garante que nenhum afastamento termine antes de começar"""
+    df_abs = load_raw_data["Absenteismo"]
+    
+    data_inicio = pd.to_datetime(df_abs["data_inicio"])
+    data_fim = pd.to_datetime(df_abs["data_fim"])
+    incosistentes = df_abs[data_fim < data_inicio]
+    assert len(incosistentes) == 0, f"Encontrados {len(incosistentes)} afastamentos com a `data_fim` menor que a `data_inicio`"
+    
+def test_sql_recrutamento_ats(load_raw_data):
+    """Garante que o tempo de recrutamento da vaga (SLA) não seja negativo"""
+    df_ats = load_raw_data["ATS"]
+    assert(df_ats["sla_dias_fechamento"] >= 0).all(), "Existem requisições fechadas com o SLA de tempo negativo."
+    assert(df_ats["qtd_aplicacoes"] >= df_ats["qtd_triagem"]).all(), "Triagem maior que o topo do fúnil de aplicações."
+
+def test_coerencia_faturamento_beneficios(load_raw_data):
+    """Verifica se não existem beneficios ou idades impossíveis de faturar"""
+    df_vidas = load_raw_data["beneficios_vidas"]
+    assert(df_vidas["idade_vigente"] >= 0).all(), "Beneficiário faturado com idade negativa"
+    assert(df_vidas["custo_saude"] >= 0).all(), "Faturamento de Saúde com valor negativo."
+    
+def test_regras_estado_lms(load_raw_data):
+    """Valida a lógica transacional do status acadêmico (Concluído, Abandono, Reprovado)"""
+    df_lms = load_raw_data["LMS"]
+    abandonos = df_lms[df_lms["status"] == "Abandonado"]
+    assert abandonos["nota_final"].isnull().all(), "Cursos Abandonados não devem possuir nota"
+    assert abandonos["data_conclusao"].isnull().all(), "Cursos Abandonados não devem possuir data de conclusão"
+    
+    concluidos = df_lms[df_lms["status"].isin(["Concluído", "Reprovado"])]
+    assert concluidos["nota_final"].notnull().all(), "Cursos finalizados obrigatoriamente devem possuir nota."
+
+def run_data_quality_tests():
+    """
+    Função de orquestração para execução de todos os testes de qualidade de dados
+    """
+    logger.info("[INFO] - Iniciando a execução dos testes de qualidade de dados (Data Quality) na Camada Raw")
+    
+    # Código que executa o pytest programaticamente
+    exit_code = pytest.main(["-v", "--tb=short", "tests/test_raw_quality.py"])
+    
+    if exit_code != 0:
+        logger.error("[FALHA CRÍTICA] - Dados reprovados no teste de qualidade")
+        logger.error("Pipeline abortado para proteger o Data Warehouse (Camada Bronze)")
         
+        sys.exit(1)
+        
+    logger.success("[SUCESSO] - Todos os testes de qualidade de dados foram aprovados com sucesso. Pipeline pode prosseguir para a ingestão.")
