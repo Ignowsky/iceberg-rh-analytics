@@ -142,13 +142,18 @@ def run_bronze_ingestion():
     arquivos_parquet = {
         "Dim_Estrutura.parquet": "Dim_Estrutura",
         "Dim_Cargos.parquet": "Dim_Cargos",
+        "Dim_Cursos.parquet": "Dim_Cursos",
         "Fato_Contratos.parquet": "Fato_Contratos",
         "Fato_Ponto_Mensal.parquet": "Fato_Ponto",
         "Fato_Movimentacoes.parquet": "Fato_Movimentacoes",
         "Fato_Pesquisa_Clima.parquet": "Fato_Pesquisa_Clima",
         "Fato_Avaliacao_9box.parquet": "Fato_Avaliacao_9box",
         "Fato_Snapshot_Mensal.parquet": "Fato_Snapshot_Mensal",
-        "Fato_Requisicoes_Vagas.parquet": "Fato_Requisicoes_Vagas"
+        "Fato_Requisicoes_Vagas.parquet": "Fato_Requisicoes_Vagas",
+        "Fato_ATS_Funil.parquet": "Fato_ATS_Funil",
+        "Fato_Custo_Beneficios.parquet": "Fato_Custo_Beneficios",
+        "Fato_Engajamento_LMS.parquet": "Fato_Engajamento_LMS",
+        "Fato_Vidas_Beneficios.parquet": "Fato_Vida_Beneficios"
     }
     
     for arquivo, tabela in arquivos_parquet.items():
