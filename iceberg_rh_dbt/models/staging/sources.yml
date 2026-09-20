@@ -2,13 +2,14 @@ version: 2
 
 sources:
   - name: hr_bronze
-    database: iceberg_rh
+    database: iceberg_rh_dev
     schema: raw
     description: "Camada Raw/Bronze contendo os dados brutos e imutáveis (formato Delta) ingeridos no Databricks Unity Catalog"
     tables:
       - name: Dim_Pessoas
       - name: Dim_Cargos
       - name: Dim_Estrutura
+      - name: Dim_Cursos
       - name: Fato_Contratos
       - name: Fato_Movimentacoes
       - name: Fato_Pesquisa_Clima
@@ -16,3 +17,8 @@ sources:
       - name: Fato_Ponto
       - name: Fato_Snapshot_Mensal
       - name: Fato_Requisicoes_Vagas
+      - name: Fato_Absenteismo_Historico
+      - name: Fato_ATS_Funil
+      - name: Fato_Engajamento_LMS
+      - name: Fato_Custo_Beneficios
+      - name: Fato_Vidas_Beneficios
