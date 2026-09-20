@@ -1,0 +1,46 @@
+version: 2
+
+models:
+  - name: silver__dim_colaboradores
+    description: "Dimensão consolidada de colaboradores, integrando dados demográficos, contratuais e geográficos."
+    columns:
+      - name: sk_contrato
+        description: "Chave primária do contrato do colaborador."
+        tests:
+          - unique
+          - not_null
+      - name: flag_ativo
+        description: "Flag booleana (1/0) indicando se o colaborador está ativo."
+        tests:
+          - accepted_values:
+                arguments:
+                    values: [0, 1]
+
+  - name: silver__fato_absenteismo
+    description: "Fato transacional de ausências, atestados e impactos financeiros na folha."
+    columns:
+      - name: sk_absenteismo
+        description: "Chave primária (Hash MD5) do registro de absenteísmo."
+        tests:
+          - unique
+          - not_null
+      - name: sk_contrato
+        description: "Chave estrangeira mapeando o contrato."
+        tests:
+          - not_null
+          - relationships:
+              to: ref('silver__dim_colaboradores')
+              field: sk_contrato
+
+  - name: silver__fato_recrutamento
+    description: "Fato unificada do processo seletivo, métricas de SLA e conversão do funil (ATS)."
+    columns:
+      - name: sk_requisicao
+        tests:
+          - unique
+          - not_null
+      - name: flag_sla_cumprido
+        tests:
+          - accepted_values:
+                arguments:
+                    values: [0, 1]
