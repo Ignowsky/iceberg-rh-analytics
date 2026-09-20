@@ -8,6 +8,7 @@ para o Data Warehouse, garatindo a imutabilidade da origem (ELT)
 import os
 import json
 import sys
+import argparse
 # importações de bibliotecas externas
 import pandas as pd
 # importações de bibliotecas do Databricks
@@ -24,7 +25,6 @@ load_dotenv()
 DBX_HOST = os.getenv("DATABRICKS_HOST")
 DBX_TOKEN = os.getenv("DATABRICKS_TOKEN")
 DBX_HTTP_PATH = os.getenv("DATABRICKS_HTTP_PATH")
-CATALOG = os.getenv("DBX_CATALOG")
 SCHEMA = os.getenv("DBX_SCHEMA_BRONZE")
 VOLUME = os.getenv("DBX_VOLUME")
 
@@ -58,11 +58,11 @@ def execute_databricks_sql(query: str):
             cursor.execute(query)
             
 
-def upload_to_volume(local_path: str, file_name: str) -> str:
+def upload_to_volume(local_path: str, file_name: str, catalog: str) -> str:
     """
     Realiza o upload do arquivo físico para o Unity Catalog Volume.
     """
-    volume_path = f"/Volumes/{CATALOG}/{SCHEMA}/{VOLUME}/{file_name}"
+    volume_path = f"/Volumes/{catalog}/{SCHEMA}/{VOLUME}/{file_name}"
     logger.info(f"[INFO] - Realizando o upload do arquivo físico para o volume: {volume_path}")
     
     with open(local_path, "rb") as f:
@@ -71,7 +71,7 @@ def upload_to_volume(local_path: str, file_name: str) -> str:
     return volume_path
     
 
-def ingest_parquet_native(file_name: str, table_name: str):
+def ingest_parquet_native(file_name: str, table_name: str, catalog: str):
     """
     Função para a ingestão nativa de arquivos parquet no bigquery
     Args:
@@ -80,9 +80,9 @@ def ingest_parquet_native(file_name: str, table_name: str):
     """
     
     local_path = os.path.join(BASE_DIR, file_name)
-    table_full_name = f"{CATALOG}.{SCHEMA}.{table_name}"
+    table_full_name = f"{catalog}.{SCHEMA}.{table_name}"
     
-    volume_path = upload_to_volume(local_path, file_name)
+    volume_path = upload_to_volume(local_path, file_name, catalog)
     
     logger.info(f"[INFO] - Realizando a materialização das tabelas deltas: {table_full_name}")
     query = f"""
@@ -95,7 +95,7 @@ def ingest_parquet_native(file_name: str, table_name: str):
     logger.success(f"[SUCCESS] - Tabela {table_full_name} ingerida com sucesso na camada raw")
     
     
-def ingest_json_native(file_name: str, table_name: str):
+def ingest_json_native(file_name: str, table_name: str, catalog: str):
     """
     Função para a ingestão nativa de arquivos JSON no Bigquery utilizando a lib
     pandas para leitura do arquivo e conversão para dataframe, garantindo a consistência de tipos.
@@ -105,7 +105,7 @@ def ingest_json_native(file_name: str, table_name: str):
     """
     local_path = os.path.join(BASE_DIR, file_name)
     temp_parquet_path = os.path.join(BASE_DIR, f"temp_{table_name}.parquet")
-    table_full_name = f"{CATALOG}.{SCHEMA}.{table_name}"
+    table_full_name = f"{catalog}.{SCHEMA}.{table_name}"
     
     logger.info(f"[INFO] - Tratando as complexidades do JSON localmente.")
     
@@ -118,10 +118,10 @@ def ingest_json_native(file_name: str, table_name: str):
     # Salvando temporariamente como parquet pra manter a tipagem
     df.to_parquet(temp_parquet_path, engine = "pyarrow", index = False)
     
-    volume_path = upload_to_volume(temp_parquet_path, f"{table_name}.parquet")
+    volume_path = upload_to_volume(temp_parquet_path, f"{table_name}.parquet", catalog)
     
     query = f"""
-        CREATE OR REPLACE TABLE {table_full_name}
+        CREATE OR REPLACE TABLE {table_full_name} AS
         SELECT *
         FROM parquet.`{volume_path}`
     """
@@ -133,11 +133,12 @@ def ingest_json_native(file_name: str, table_name: str):
     
     
     
-def run_bronze_ingestion():
+def run_bronze_ingestion(env: str):
     """
     Função principal para realizar a ingestão dos arquivos da camada raw para a camada bronze no Bigquery.
     """
-    logger.info(f"[INFO] - Iniciando a ingestão da Camada raw no Databricks Catalogo Target: {CATALOG}")
+    catalog = f"iceberg_rh_{env}"
+    logger.info(f"[INFO] - Iniciando a ingestão da Camada raw no Databricks Catalogo Target: {catalog}")
     
     arquivos_parquet = {
         "Dim_Estrutura.parquet": "Dim_Estrutura",
@@ -153,13 +154,14 @@ def run_bronze_ingestion():
         "Fato_ATS_Funil.parquet": "Fato_ATS_Funil",
         "Fato_Custo_Beneficios.parquet": "Fato_Custo_Beneficios",
         "Fato_Engajamento_LMS.parquet": "Fato_Engajamento_LMS",
-        "Fato_Vidas_Beneficios.parquet": "Fato_Vida_Beneficios"
+        "Fato_Vidas_Beneficios.parquet": "Fato_Vidas_Beneficios",
+        "Fato_Absenteismo_Historico.parquet": "Fato_Absenteismo_Historico"
     }
     
     for arquivo, tabela in arquivos_parquet.items():
-        ingest_parquet_native(arquivo, tabela)
+        ingest_parquet_native(arquivo, tabela, catalog)
         
-    ingest_json_native("Dim_Pessoas.json", "Dim_Pessoas")
-    logger.info(f"[INFO] - Ingestão da Camada raw concluída Catalogo target: {CATALOG}")
+    ingest_json_native("Dim_Pessoas.json", "Dim_Pessoas", catalog)
+    logger.info(f"[INFO] - Ingestão da Camada raw concluída Catalogo target: {catalog}")
     
     

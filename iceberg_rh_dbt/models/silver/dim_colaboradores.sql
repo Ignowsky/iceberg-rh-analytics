@@ -52,8 +52,11 @@ SELECT
     c.salario_base,
     cg.nome_cargo,
     cg.nivel_senioridade,
-    e.nome_area,
-    e.diretoria
+    e.departamento as nome_area,
+    e.diretoria,
+    e.cidade_escritorio,
+    e.latitude,
+    e.longitude
 FROM contratos c
 INNER JOIN pessoas p
     ON c.sk_pessoa = p.sk_pessoa
