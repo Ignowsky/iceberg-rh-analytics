@@ -13,6 +13,7 @@ import sys
 import json
 import random
 import math
+import calendar
 import pandas as pd
 
 # ================================
@@ -23,6 +24,7 @@ from dateutil.relativedelta import relativedelta
 from faker import Faker
 from typing import List, Dict, Any
 from loguru import logger
+from .lms_course_generator import gerar_catalogo_lms
 
 # =============================================================
 # 1º Setup inicial de ambiente e observação (logs)
@@ -48,6 +50,21 @@ random.seed(42)  # Semente para garantir reprodutibilidade dos dados aleatórios
 # ==============================================================
 # 2º Definição dos metadados e regras de negócio para a geração de dados simulados
 # ==============================================================
+
+
+# Criando a matriz de preços da ANS
+tabela_ans_saude = {
+    18: 350.00,
+    23: 420.00,
+    28: 504.00,
+    33: 604.00,
+    38: 725.76,
+    43: 830.91,
+    48: 1045.09,
+    53: 1254.11,
+    58: 1504.93,
+    999: 1805.91
+}
 
 # Criando a matriz geográfica
 # A declaração 'peso_volume' é oque dita a densidade populacional de cada estado, ou seja, quanto maior o peso, maior a quantidade de colaboraores simulados
@@ -80,6 +97,27 @@ tabela_cargos_referencia = {
     "Coordenador": {"midpoint": 14000, "peso_hc": 0.08},
     "Gerente": {"midpoint": 22000, "peso_hc": 0.04}
 }
+
+
+# Gerar a tabela o catalogo de cursos
+catalogo_cursos = gerar_catalogo_lms(qtd_hard = 45, qtd_soft = 30, qtd_lid = 21)
+
+# ==============================================================
+# 2.5º Geração de dados aleatórios de data
+# ==============================================================
+def get_random_date_in_month(ref_date: date) -> date:
+    """
+    Gera uma data aleatória dentro do mês especificado.
+    
+    Args:
+        ref_date (date): Data de referência para o mês e ano desejados.
+        
+    Returns:
+        date: Uma data aleatória dentro do mesmo mês e ano da data de referência.
+    """
+    _, last_day = calendar.monthrange(ref_date.year, ref_date.month)
+    random_day = random.randint(1, last_day)
+    return date(ref_date.year, ref_date.month, random_day)
 
 # ==============================================================
 # 3º Motores de Calculos e Funções Auxiliares
@@ -154,7 +192,11 @@ def record_movement(emp_id: int, data_evento: str, tipo_evento: str,
         "ganho_efetivo": round(ganho_efetivo, 2)
     })
     
-    
+def calcular_custo_plano_saude(idade: int) -> float:
+    for limite_idade, valor in tabela_ans_saude.items():
+        if idade <= limite_idade:
+            return valor
+    return tabela_ans_saude[999]
 
 # ==========================================================================
 # 4º Geração do Modelo Dimensional Simulado (Star schema)
@@ -196,6 +238,16 @@ for depto in departamentos_unicos:
         })
         id_cargo_seq += 1
         
+dim_cursos_data = []
+for trilha, cursos in catalogo_cursos.items():
+    for curso in cursos:
+        dim_cursos_data.append({
+            "id_curso": curso["id_curso"],
+            "nome_curso": curso["nome_curso"],
+            "trilha_conhecimento": trilha,
+            "carga_horaria_padrao": curso["horas"]
+        })
+        
 # ======================================================================================    
 # 5º Criação da maquina de estados dos colaboradores (ativos demitidos) e tabelas fato
 # ======================================================================================
@@ -207,7 +259,12 @@ db: Dict[str, List[Dict[str, Any]]] = {
     "Fato_Pesquisa_Clima": [],
     "Fato_Movimentacoes": [],
     "Fato_Snapshot_Mensal": [],
-    "Fato_Requisicoes_Vagas": []
+    "Fato_Requisicoes_Vagas": [],
+    "Fato_Custo_Beneficios": [],
+    "Fato_Vidas_Beneficios": [],
+    "Fato_Engajamento_LMS": [],
+    "Fato_ATS_Funil": [],
+    "Fato_Absenteismo_Historico": []
 }
 
 active_employees: Dict[int, Dict[str, Any]] = {}
@@ -272,26 +329,85 @@ def admit_employee(current_date: date, is_carga_inicial: bool = False, req_area_
     else:
         # Se for false mantém como none
         tipo_deficiencia = None
+        
+    nivel_cargo = cargo["nivel_hierarquico"]
     
+    if nivel_cargo in ["Gerente", "Coordenador", "Especialistas"]:
+        escolaridade = random.choices(
+            ["Superior Completo", "Pós-Graduação/MBA", "Mestrado/Doutorado"],
+            weights = (0.10, 0.70, 0.40)
+        )[0]
+        
+        
+    elif nivel_cargo == "Analista Sênior (III)":
+        escolaridade = random.choices(
+            ["Superior Completo", "Pós-Graduação/MBA"],
+            weights = [0.60, 0.40]
+        )[0]
+    
+    elif nivel_cargo == "Analista Pleno (II)":
+        escolaridade = random.choices(
+            ["Superior Incompleto", "Superior Completo", "Pós-Graduação/MBA"],
+            weights = [0.10, 0.80, 0.10]
+        )[0]
+    
+    elif nivel_cargo == "Analista Junior (I)":
+        escolaridade = random.choices(
+            ["Ensino Médio", "Superior Incompleto", "Superior Completo"],
+            weights = [0.10, 0.50, 0.40]
+        )[0]
+    
+    else:
+        escolaridade = random.choices(
+            ["Ensino Fundamental", "Ensino Médio", "Superior Incompleto"],
+            weights = [0.10, 0.70, 0.20]
+        )[0]
+        
+        
+    # Geração de dependentes com data_nascimento
+    idade_na_admissao = random.randint(18, 60)
+    data_nasc_titular = current_date - relativedelta(years = idade_na_admissao)
+
+    dependentes_lista = []
+    
+    for _ in range(random.randint(0,2)):
+        tipo_dep = random.choices(["Cônjuge", "Filhos(a)"], weights = [0.40, 0.60])[0]
+        if tipo_dep == "Cônjuge":
+            ano_dep = data_nasc_titular.year + random.randint(-5, 5)
+            mes_dep = data_nasc_titular.month
+            dia_dep = data_nasc_titular.day
+            
+            if mes_dep == 2 and dia_dep == 29 and not calendar.isleap(ano_dep):
+                dia_dep = 28
+            data_nasc_dep = date(ano_dep, mes_dep, dia_dep)
+        else:
+            ano_dep = data_nasc_titular.year + random.randint(18, 40)
+            data_nasc_dep = date(ano_dep, random.randint(1,12), random.randint(1,28))
+            
+        dependentes_lista.append({
+            "nome": fake.first_name(),
+            "parentesco": tipo_dep,
+            "data_nascimento": data_nasc_dep.isoformat()
+        })
+    
+    nome_titular_gerado = fake.name()
     db["Dim_Pessoas"].append({
         "id_pessoa": person_id_seq,
-        "nome": fake.name(),
+        "nome": nome_titular_gerado,
         "cpf": fake.cpf(),
-        "data_nascimento": fake.date_of_birth(
-            minimum_age = 18,
-            maximum_age = 75
-        ).isoformat(),
+        "data_nascimento": data_nasc_titular.isoformat(),
         "sexo_biologico": sexo,
         "identidade_genero": id_genero,
         "orientacao_sexual": orientacao,
         "raca_cor": raca,
         "is_pcd": is_pcd,
         "tipo_deficiencia": tipo_deficiencia,
+        "escolaridade": escolaridade,
         "estado_sigla": office["estado_sigla"],
         "cidade": office["cidade_escritorio"],
         "latitude": p_lat,
         "longitude": p_lon,
-        "dependentes": [{"nome": fake.first_name()} for _ in range(random.randint(0, 2))]
+        "dependentes": dependentes_lista
     })
     
     
@@ -328,7 +444,12 @@ def admit_employee(current_date: date, is_carga_inicial: bool = False, req_area_
         "overtime_history": [0, 0, 0],
         "enps_group": "Neutro",
         "nine_box_score": random.randint(3 ,7) if is_carga_inicial else 5,
-        "months_since_promo": int(anos_de_casa_simulado * 12)
+        "months_since_promo": int(anos_de_casa_simulado * 12),
+        "data_nasc_titular": data_nasc_titular.isoformat(),
+        "dependentes_lista": dependentes_lista,
+        "nome_titular": nome_titular_gerado,
+        "data_admissao": data_admissao,
+        "sexo_biologico": sexo
     }
     id_gerado = contract_id_seq
     person_id_seq += 1
@@ -339,15 +460,16 @@ def admit_employee(current_date: date, is_carga_inicial: bool = False, req_area_
 # ======================================================================
 # 6º Orquestração do tempo
 # =====================================================================
-def main():
+def run_data_generation():
     global requisicao_id_seq
     logger.info("Iniciando a Carga Inicial: 1.000 funcionários de base...")
     
     # Este loop roda apenas para os 1000 iniciais
     for _ in range(1000):
-        admit_employee(date(2010, 1, 1), is_carga_inicial=True)
+        data_admissao_random = get_random_date_in_month(date(2010,1,1))
+        admit_employee(data_admissao_random, is_carga_inicial = True)
         
-    # --- AS VARIÁVEIS ABAIXO AGORA ESTÃO FORA DO 'FOR' ---
+    
     start_date = date(2010, 1, 1)
     end_date = date(2026, 8, 1)
     current_date = start_date
@@ -369,7 +491,7 @@ def main():
             to_terminate = []
             
             # --- 1. MOTOR DE RECRUTAMENTO (CRIAR E FECHAR VAGAS) ---
-            taxa_crescimento = random.uniform(0.001, 0.003) 
+            taxa_crescimento = random.uniform(0.004, 0.008) 
             novas_vagas = int(len(active_employees) * taxa_crescimento)
             
             if current_date.year in [2015, 2016, 2020]:  
@@ -377,8 +499,9 @@ def main():
                 # Crise cancela até 80% das vagas de reposição que estavam abertas
                 for req in vagas_abertas:
                     if random.random() < 0.80:
+                        data_cancelamento = get_random_date_in_month(current_date)
                         req["status"] = "Cancelada"
-                        req["data_fechamento"] = current_date.isoformat()
+                        req["data_fechamento"] = data_cancelamento.isoformat()
                 # Atualiza a lista após os cancelamentos
                 vagas_abertas = [r for r in db["Fato_Requisicoes_Vagas"] if r["status"] == "Aberta"]
                 
@@ -388,9 +511,10 @@ def main():
                 cargos_target = [c for c in dim_cargos_data if c["departamento"] == office_target["departamento"]]
                 cargo_target = random.choices(cargos_target, weights = [c["peso_contratacao"] for c in cargos_target], k = 1)[0]
                 
+                data_abertura = get_random_date_in_month(current_date)
                 db["Fato_Requisicoes_Vagas"].append({
                     "id_requisicao": requisicao_id_seq, 
-                    "data_abertura": current_date.isoformat(),
+                    "data_abertura": data_abertura.isoformat(),
                     "data_fechamento": None, 
                     "tipo_vaga": "Aumento de Quadro",
                     "id_area": office_target["id_area"], 
@@ -403,26 +527,65 @@ def main():
 
             # Recrutamento operando: Fecha entre 60% e 85% do pipeline do mês
             if vagas_abertas:
-                qtd_para_fechar = int(len(vagas_abertas) * random.uniform(0.60, 0.85))
+                qtd_para_fechar = int(len(vagas_abertas) * random.uniform(0.70, 0.92))
                 vagas_selecionadas = random.sample(vagas_abertas, qtd_para_fechar)
                 
                 for req in vagas_selecionadas:
                     # Contrata o perfil exato que a vaga pede e amarra os IDs
-                    id_novo_colaborador = admit_employee(current_date, req_area_id=req["id_area"], req_cargo_id=req["id_cargo"])
+                    data_fechamento = get_random_date_in_month(current_date)
+                    data_abertura = datetime.fromisoformat(req["data_abertura"]).date()
+                    
+                    # Garante que a vaga não foi fechada antes da abertura
+                    dias_sla = (data_fechamento - data_abertura).days
+                    if dias_sla < 0:
+                        data_fechamento = data_abertura + relativedelta(days = random.randint(5, 20))
+                        dias_sla = (data_fechamento - data_abertura).days
+                    
+                    # 2. Motor da taxa de conversão
+                    qtd_aplicacoes = random.randint(30, 365)
+                    qtd_triagem = int(qtd_aplicacoes * random.uniform(0.15, 0.35))
+                    qtd_entrevistas_rh = int(qtd_triagem * random.uniform(0.30, 0.60))
+                    qtd_entrevistas_gestor = int(qtd_entrevistas_rh * random.uniform(0.30, 0.50))
+                    if qtd_entrevistas_gestor < 1: qtd_entrevistas_gestor = 1
+                    
+                    # 3. Origem da contratação
+                    origem = random.choices(
+                        ["Linkedin", "Gupy/Portal de Vagas", "Indicação Interna", "Indeed", "Headhunter", "Banco de Talentos", "Sólides"],
+                        weights = [0.25, 0.17, 0.05, 0.10, 0.18, 0.10, 0.15]
+                    )[0]
+                    
+                    # 4. Contratação Efetiva
+                    id_novo_colaborador = admit_employee(data_fechamento, req_area_id = req["id_area"], req_cargo_id = req["id_cargo"])
+                    
                     req["status"] = "Preenchida"
-                    req["data_fechamento"] = current_date.isoformat()
+                    req["data_fechamento"] = data_fechamento.isoformat()
                     req["id_contrato_preenchimento"] = id_novo_colaborador
+                    
+                    # Gravação da Fato de Funil
+                    db["Fato_ATS_Funil"].append({
+                        "competencia_fechamento": current_date.strftime("%Y-%m"),
+                        "id_requisicao": req["id_requisicao"],
+                        "id_contrato": id_novo_colaborador,
+                        "origem_contratacao": origem,
+                        "sla_dias_fechamento": dias_sla,
+                        "qtd_aplicacoes": qtd_aplicacoes,
+                        "qtd_triagem": qtd_triagem,
+                        "qtd_entrevistas_rh": qtd_entrevistas_rh,
+                        "qtd_entrevistas_gestor": qtd_entrevistas_gestor,
+                        "qtd_ofertas_aceitas": 1
+                    })
                 
             # --- 2. LOOP INTRA-MÊS BLINDADO COM list() ---
             for emp_id, state in list(active_employees.items()):
                 c = state["contract"]
                 salario_atual = c["salario"]
                 cargo_atual_id = c["id_cargo"]
+                data_admissao_emp = datetime.fromisoformat(state["contract"]["data_admissao"]).date()
                 
                 # (A) Ponto e Burnout Físico
                 base_faltas = 0
                 if c["modelo_trabalho"] in ["Presencial", "Híbrido"] and state["distance_km"] > 30:
-                    base_faltas = random.choices([0, 8 ,16], weights = [0.6, 0.3, 0.1])[0]
+                    base_faltas = random.choices([0, 8, 16, 24, 36, 44], weights = [0.45, 0.25, 0.10, 0.10, 0.06, 0.04])[0]
                     
                 horas_extras = random.randint(0, 30)
                 db["Fato_Ponto"].append({
@@ -430,41 +593,174 @@ def main():
                     "horas_trabalhadas": 180 - base_faltas, "horas_extras": horas_extras, "horas_faltas": base_faltas 
                 })
                 
+                # ==========================================================================
+                # (A.2) Motor transacional de Absenteísmo
+                # ==========================================================================
+                # aumenta a chance de atestados se o historico de horas extras estiver alto
+                probabilidade_atestados = 0.08 if sum (state["overtime_history"]) > 40 else 0.02
+                
+                # 1. Atestados médicos (Doenças Mais Simples)
+                if random.random() < probabilidade_atestados:
+                    dias_afastados = random.choices([1, 2, 3, 5, 14], weights = [0.5, 0.2, 0.15, 0.1, 0.05])[0]
+                    data_inicio_afast = get_random_date_in_month(current_date)
+                    data_fim_afast = data_inicio_afast + relativedelta(days = dias_afastados - 1)
+                    
+                    db["Fato_Absenteismo_Historico"].append({
+                        "competencia": current_date.strftime("%Y-%m"),
+                        "id_contrato": emp_id,
+                        "data_inicio": data_inicio_afast.isoformat(),
+                        "data_fim": data_fim_afast.isoformat(),
+                        "qtd_dias": dias_afastados,
+                        "tipo_afastamento": "Atestado Médico",
+                        "cid_simulado": f"{random.choice(["J", "M", "F", "Z"])}{random.randint(10, 99)}"
+                    })
+                    
+                elif random.random() < 0.03:
+                    dias_afastados = random.choices([1, 2], weights = [0.8, 0.2])[0]
+                    data_inicio_afast = get_random_date_in_month(current_date)
+                    data_fim_afast = data_inicio_afast + relativedelta(days = dias_afastados - 1)
+                    
+                    db["Fato_Absenteismo_Historico"].append({
+                        "competencia": current_date.strftime("%Y-%m"),
+                        "id_contrato": emp_id,
+                        "data_inicio": data_inicio_afast.isoformat(),
+                        "data_fim": data_fim_afast.isoformat(),
+                        "qtd_dias": dias_afastados,
+                        "tipo_afastamento": "Falta Injustificada",
+                        "cid_simulado": None
+                    })
+                    
+                # 3. Férias (Motor de Férias com DSR da CLT)
+                if current_date.month == data_admissao_emp.month and meses_desde_admissao >= 12:
+                    # Probabilidade de abono de 35% 
+                    vende_ferias = random.random() < 0.35,
+                    dias_direito = 20 if vende_ferias else 30
+                    
+                    # Definição dos cenários validos (Garantindo 1 périodo >= 14 e os demais >= 5)
+                    if dias_direito == 30:
+                        cenarios = [[30], [15, 15], [20, 10], [14, 9, 7]]
+                    else:
+                        cenarios = [[20], [14, 6], [15, 5]]
+                    
+                    blocos_ferias = random.choice(cenarios)
+                    
+                    mes_referencia = current_date
+                    for bloco in blocos_ferias:
+                        # Definição da Regra DSR: O inicio só pode ocorrer entre segunda e quarta feira
+                        _, last_day = calendar.monthrange(mes_referencia.year, mes_referencia.month)
+                        dias_validos = [d for d in range(1, last_day + 1) if date(mes_referencia.year, mes_referencia.month, d).weekday() <= 2]
+                        dia_inicio = random.choice(dias_validos) if dias_validos else 1
+                        
+                        data_inicio_ferias = date(mes_referencia.year, mes_referencia.month, dia_inicio)
+                        data_fim_ferias = data_inicio_ferias + relativedelta(days = bloco - 1)
+                        
+                        db["Fato_Absenteismo_Historico"].append({
+                            "competencia": mes_referencia.strftime("%Y-%m"),
+                            "id_contrato": emp_id,
+                            "data_inicio": data_inicio_ferias.isoformat(),
+                            "data_fim": data_fim_ferias.isoformat(),
+                            "qtd_dias": bloco,
+                            "tipo_afastamento": "Férias",
+                            "cid_simulado": None
+                        })
+                        
+                        # Espaça os períodos particionados em 1 a 3 meses
+                        mes_referencia += relativedelta(months = random.randint(1, 3))
+                        
+                # 4. Licenças Orgânicas atreladas ao nascimento dos dependentes
+                for dep in state["dependentes_lista"]:
+                    if dep["parentesco"] == "Filhos(a)":
+                        data_nasc_dep = datetime.fromisoformat(dep["data_nascimento"]).date()
+                        # Validação se o dependente nasceu no loop temporal 
+                        if data_nasc_dep.year == current_date.year and data_nasc_dep.month == current_date.month:
+                            if state["sexo_biologico"] == "Feminino":
+                                tipo_licenca, dias_licenca = "Licença Maternidade", 120
+                            else:
+                                tipo_licenca, dias_licenca = "Licença Paternidade", 5
+                            
+                            db["Fato_Absenteismo_Historico"].append({
+                                "competencia": current_date.strftime("%Y-%m"),
+                                "id_contrato": emp_id,
+                                "data_inicio": data_nasc_dep.isoformat(),
+                                "data_fim": (data_nasc_dep + relativedelta(days = dias_licenca - 1)).isoformat(),
+                                "qtd_dias": dias_licenca,
+                                "tipo_afastamento": tipo_licenca,
+                                "cid_simulado": None
+                                
+                            })
+                
+                # 5. Licenças pontuais garantidas por lei
+                if random.random() < 0.001: # Casamento
+                    data_inicio_afast = get_random_date_in_month(current_date)
+                    db["Fato_Absenteismo_Historico"].append({
+                        "competencia": current_date.strftime("%Y-%m"),
+                        "id_contrato": emp_id,
+                        "data_inicio": data_inicio_afast.isoformat(),
+                        "data_fim": (data_inicio_afast + relativedelta(days = 2)).isoformat(),
+                        "qtd_dias": 3,
+                        "tipo_afastamento": "Licença Casamento",
+                        "cid_simulado": None
+                    })
+                
+                elif random.random() < 0.002:
+                    data_inicio_afast = get_random_date_in_month(current_date)
+                    db["Fato_Absenteismo_Historico"].append({
+                        "competencia": current_date.strftime("%Y-%m"),
+                        "id_contrato": emp_id,
+                        "data_inicio": data_inicio_afast.isoformat(),
+                        "data_fim": (data_inicio_afast + relativedelta(days = 1)).isoformat(),
+                        "qtd_dias": 2,
+                        "tipo_afastamento": "Licença Óbito",
+                        "cid_simulado": None
+                    })
+                            
                 # (B) Burnout Mental
                 state["overtime_history"].pop(0)
                 state["overtime_history"].append(horas_extras)
+                
+                data_afast_saude = get_random_date_in_month(current_date)
                 if sum(state["overtime_history"]) > 60:
                     state["enps_group"] = "Detrator"
                     if random.random() < 0.05:
                         db["Fato_Movimentacoes"].append({
-                            "id_contrato": emp_id, "data_evento": current_date.isoformat(), "tipo_evento": "Afastamento_Saude",
+                            "id_contrato": emp_id, "data_evento": data_afast_saude.isoformat(), "tipo_evento": "Afastamento_Saude",
                             "id_cargo_anterior": cargo_atual_id, "id_cargo_novo": cargo_atual_id,
                             "salario_anterior": salario_atual, "salario_novo": salario_atual,
                             "perc_aumento": 0.0, "ganho_efetivo": 0.0
                         })
                         
                 # (C) Sazonalidades (Clima e 9-Box)
+                data_pesquisa_clima = get_random_date_in_month(current_date)
                 if is_clima_month:
                     nota = random.randint(1, 6) if (state["distance_km"] > 30 and state["enps_group"] == "Detrator") else random.randint(5, 10)
                     grupo = "Detrator" if nota <= 6 else "Neutro" if nota <= 8 else "Promotor"
                     state["enps_group"] = grupo
-                    db["Fato_Pesquisa_Clima"].append({"id_contrato": emp_id, "data": current_date.isoformat(), "nota_enps": nota, "grupo": grupo})
+                    db["Fato_Pesquisa_Clima"].append({"id_contrato": emp_id, "data": data_pesquisa_clima.isoformat(), "nota_enps": nota, "grupo": grupo})
                 
                 if is_nov:
-                    desempenho, potencial = random.randint(1, 5), random.randint(1, 5)
-                    score = desempenho + potencial
-                    state["nine_box_score"] = score
-                    db["Fato_Avaliacao_9Box"].append({"id_contrato": emp_id, "ano": current_date.year, "desempenho": desempenho, "potencial": potencial, "score_total": score})
+                    desempenho = random.choices([1, 2, 3], weights = [0.15, 0.75, 0.10])[0]
+                    potencial = random.choices([1, 2, 3], weights = [0.13, 0.65, 0.22])[0]
+                    state["desempenho"] = desempenho
+                    state["potencial"] = potencial
+                    
+                                        
+                    db["Fato_Avaliacao_9Box"].append({
+                        "id_contrato": emp_id, 
+                        "ano": current_date.year, 
+                        "desempenho": desempenho, 
+                        "potencial": potencial
+                        })
                     
                 # (D) Dissídio, Mérito e Promoção
                 if is_may:
                     novo_salario = round(salario_atual * 1.05, 2)
-                    record_movement(emp_id, current_date.isoformat(), "Dissídio", cargo_atual_id, cargo_atual_id, salario_atual, novo_salario)
+                    data_dissidio = get_random_date_in_month(current_date)
+                    record_movement(emp_id, data_dissidio.isoformat(), "Dissídio", cargo_atual_id, cargo_atual_id, salario_atual, novo_salario)
                     c["salario"] = novo_salario
                     salario_atual = novo_salario
                     
                 state["months_since_promo"] += 1
-                is_elegivel = state["nine_box_score"] >= 8 and state["months_since_promo"] >= 12
+                is_elegivel = state.get("desempenho", 2) >= 2 and state.get("pontecial", 2) >= 2 and state.get("months_sice_promo", 0) >= 12
                 
                 if is_elegivel:
                     cargo_obj = next(cg for cg in dim_cargos_data if cg["id_cargo"] == cargo_atual_id)
@@ -473,7 +769,8 @@ def main():
                     if salario_atual < (cargo_obj["faixa_100_mid"] * 1.15):
                         if random.random() < 0.15:
                             novo_salario = min(round(salario_atual * random.uniform(1.05, 1.10), 2), teto_faixa)
-                            record_movement(emp_id, current_date.isoformat(), "Mérito", cargo_atual_id, cargo_atual_id, salario_atual, novo_salario)
+                            data_merito = get_random_date_in_month(current_date)
+                            record_movement(emp_id, data_merito.isoformat(), "Mérito", cargo_atual_id, cargo_atual_id, salario_atual, novo_salario)
                             c["salario"] = novo_salario
                             state["months_since_promo"] = 0
                     else:
@@ -481,20 +778,162 @@ def main():
                             novo_cargo_id = min(cargo_atual_id + 1, len(dim_cargos_data))
                             novo_cargo_obj = next(cg for cg in dim_cargos_data if cg["id_cargo"] == novo_cargo_id)
                             novo_salario = round(max(salario_atual * 1.10, novo_cargo_obj["faixa_80_min"]), 2)
-                            record_movement(emp_id, current_date.isoformat(), "Promoção", cargo_atual_id, novo_cargo_id, salario_atual, novo_salario)
+                            data_promo = get_random_date_in_month(current_date)
+                            record_movement(emp_id, data_promo.isoformat(), "Promoção", cargo_atual_id, novo_cargo_id, salario_atual, novo_salario)
                             c["salario"], c["id_cargo"] = novo_salario, novo_cargo_id
                             state["months_since_promo"] = 0
                             
+                # ======================================
+                # (E) Faturamento mensal de Benefícios
+                # ======================================
+                nome_titular = state["nome_titular"]
+                data_nasc_titular = datetime.fromisoformat(state["data_nasc_titular"]).date()
+                dependentes_lista = state["dependentes_lista"]
+                chave_agrupamento = f"FAM-{emp_id}"
+                
+                idade_titular_mensal = (current_date - data_nasc_titular).days  // 365
+                custo_saude_titular = calcular_custo_plano_saude(idade_titular_mensal)
+                
+                db["Fato_Vidas_Beneficios"].append({
+                    "competencia": current_date.strftime("%Y-%m"),
+                    "id_contrato": emp_id,
+                    "chave_familia": chave_agrupamento,
+                    "nome_titular": nome_titular,
+                    "nome_beneficiario": nome_titular,
+                    "parentesco": "Titular",
+                    "idade_vigente": idade_titular_mensal,
+                    "custo_saude":round(custo_saude_titular),
+                    "custo_odonto": 56.52
+                })
+                
+                custo_saude_dependentes = 0.0
+                vidas_odonto = 1
+                
+                for dep in dependentes_lista:
+                    data_nasc_dep = datetime.fromisoformat(dep["data_nascimento"]).date()
+                    idade_dep = (current_date - data_nasc_dep).days // 365
+                    
+                    if idade_dep >= 0:
+                        custo_saude_dependentes += calcular_custo_plano_saude(idade_dep)
+                        vidas_odonto += 1
+                        
+                        db["Fato_Vidas_Beneficios"].append({
+                        "competencia": current_date.strftime("%Y-%m"),
+                        "id_contrato": emp_id,
+                        "chave_familia": chave_agrupamento,
+                        "nome_titular": nome_titular,
+                        "nome_beneficiario": dep["nome"],
+                        "parentesco": dep["parentesco"],
+                        "idade_vigente": idade_dep,
+                        "custo_saude":round(custo_saude_titular),
+                        "custo_odonto": 56.52
+                        })
+                    
+                custo_odonto_total = 56.52 * vidas_odonto
+                custo_va = 1622.00
+                
+                db["Fato_Custo_Beneficios"].append({
+                    "competencia": current_date.strftime("%Y-%m"),
+                    "id_contrato": emp_id,
+                    "custo_saude_titular": round(custo_saude_titular, 2),
+                    "custo_saude_dependentes": round(custo_saude_dependentes, 2),
+                    "custo_odonto": round(custo_odonto_total, 2),
+                    "custo_vale_alimentacao": round(custo_va, 2),
+                    "custo_total_beneficios": round(custo_saude_titular + custo_saude_dependentes + custo_odonto_total + custo_va, 2)
+                })
+                
+                # ===========================================
+                # (F) Plataforma de Treinamento e Engajamento
+                # ===========================================
+                cargo_atual_id = state["contract"]["id_cargo"]
+                nivel_cargo = next(cg["nivel_hierarquico"] for cg in dim_cargos_data if cg["id_cargo"] == cargo_atual_id)
+                meses_desde_admissao = (current_date - data_admissao_emp).days // 30
+                
+                executar_curso = False
+                curso_realizado = None
+                trilha_escolhida = None
+                
+                # =========================================
+                # Regra 1 para os novatos
+                # (0 a 3) Meses focam obrigatoriamente nos cursos de onbording
+                # ========================================
+                if meses_desde_admissao <= 3:
+                    if random.random() < 0.80:
+                        trilha_escolhida = "Onboarding"
+                        curso_realizado = random.choice(catalogo_cursos["Onboarding"])
+                        executar_curso = True
+                
+                # =========================================
+                # Regra 2 para os veteranos
+                # Veteranso consomem cursos orgânicos (Probabilidade de 15%)
+                # ========================================
+                elif random.random() < 0.15:
+                    # Liderança foca em gestão; analistas focam em técnica
+                            if nivel_cargo in ["Gerente", "Coordenador", "Especialista"]:
+                                trilha_escolhida = random.choices(["Liderança", "Soft Skills", "Hard Skills"], weights = [0.60, 0.30, 0.10])[0]
+                            else:
+                                trilha_escolhida = random.choices(["Hard Skills", "Soft Skills"], weights = [0.70, 0.30])[0]
+                            curso_realizado = random.choice(catalogo_cursos[trilha_escolhida])
+                            executar_curso = True
+                            
+                # Geração da jornada do LMS no mês que o colaborador interagiu com o lms
+                if executar_curso:
+                    # Definição do Status
+                    status_curso = random.choices(["Concluído", "Reprovado", "Abandonou"], weights = [0.75, 0.05, 0.20])[0]
+                    
+                    # 2. Engenharia da data de conclusão
+                    dias_duracao = random.randint(2,45)
+                    data_evento_obj = get_random_date_in_month(current_date)
+                    data_matricula_obj = data_evento_obj - relativedelta(days = dias_duracao)
+                    
+                    # 3. Engenharia dos módulos
+                    horas_totais = curso_realizado["horas"]
+                    total_modulos = max(1, horas_totais // 2)
+                    
+                    if status_curso == "Concluído":
+                        modulos_concluidos = total_modulos
+                        nota_final = round(random.uniform(7.0, 10.0), 1)
+                        data_conclusao_final = data_evento_obj.isoformat()
+                        horas_consumidas = horas_totais
+                        
+                    elif status_curso == "Reprovado":
+                        modulos_concluidos = total_modulos
+                        nota_final = round(random.uniform(2.0, 6.9), 1)
+                        data_conclusao_final = data_evento_obj.isoformat()
+                        horas_consumidas = horas_totais
+                        
+                    else:
+                        # Abandonou o curso: parou na metade, sem nota e sem data de conclusao
+                        modulos_concluidos = random.randint(0, max(1, total_modulos - 1))
+                        nota_final = None
+                        data_conclusao_final = None
+                        horas_consumidas = int(horas_totais * (modulos_concluidos / total_modulos))
+                        
+                    db["Fato_Engajamento_LMS"].append({
+                        "competencia_registro": current_date.strftime("%Y-%m"),
+                        "id_contrato": emp_id,
+                        "id_curso": curso_realizado["id_curso"],
+                        "data_matricula": data_matricula_obj.isoformat(),
+                        "data_conclusao": data_conclusao_final,
+                        "status": status_curso,
+                        "nota_final": nota_final,
+                        "total_modulos": total_modulos,
+                        "modulos_concluidos": modulos_concluidos,
+                        "horas_consumidas": horas_consumidas
+                    })
+                    
                 # --- 3. REGRAS DE TURNOVER (A MAGIA DO NEGÓCIO) ---
                 # Turnover Involuntário (Baixo Desempenho no 9-Box)
-                if state["nine_box_score"] <= 4 and current_date.month in [1, 2]: # Demissões costumam ocorrer após o fechamento do ano
-                    if random.random() < 0.20: # 20% de chance de corte
+                if state.get("desempenho", 2) == 1 or state.get("potencial", 2) == 1 and current_date.month in [1, 2]:
+                    if random.random() < 0.20:
                         to_terminate.append((emp_id, "Demissão Sem Justa Causa"))
                         continue
                         
                 # Fuga de Talentos Voluntária
-                if is_elegivel and state["enps_group"] == "Detrator" and salario_atual >= (dim_cargos_data[cargo_atual_id-1]["faixa_130_max"] * 0.95):
-                    if random.random() < 0.08:
+                is_talento = (state.get("desempenho", 2) == 3 and state.get("potencial", 2) == 3)
+                if state.get("enps_group", "Neutro") == "Detrator" and salario_atual >= (dim_cargos_data[cargo_atual_id-1]["faixa_130_max"] * 0.95):
+                    probabilidade_saida = 0.0025 if is_talento else 0.01
+                    if random.random() < probabilidade_saida:
                         to_terminate.append((emp_id, "Desligamento Voluntário"))
                         
                 # --- 4. EFETIVAÇÃO DOS DESLIGAMENTOS E GERAÇÃO DE VAGAS ---
@@ -504,15 +943,17 @@ def main():
                     cargo_id_saida = active_employees[emp_id]["contract"]["id_cargo"]
                     salario_saida = active_employees[emp_id]["contract"]["salario"]
                     
+                    data_demissao = get_random_date_in_month(current_date)
                     active_employees[emp_id]["contract"]["status"] = "Desligado"
-                    active_employees[emp_id]["contract"]["data_demissao"] = current_date.isoformat()
+                    active_employees[emp_id]["contract"]["data_demissao"] = data_demissao.isoformat()
                     
-                    record_movement(emp_id, current_date.isoformat(), motivo, cargo_id_saida, cargo_id_saida, salario_saida, 0.0)
+                    
+                    record_movement(emp_id, data_demissao.isoformat(), motivo, cargo_id_saida, cargo_id_saida, salario_saida, 0.0)
                     del active_employees[emp_id]
                     
                     # ABRE A VAGA DE REPOSIÇÃO (BACKFILL)
                     db["Fato_Requisicoes_Vagas"].append({
-                        "id_requisicao": requisicao_id_seq, "data_abertura": current_date.isoformat(),
+                        "id_requisicao": requisicao_id_seq, "data_abertura": data_demissao.isoformat(),
                         "data_fechamento": None, "tipo_vaga": "Substituição",
                         "id_area": area_id_saida, "id_cargo": cargo_id_saida,
                         "status": "Aberta", "id_contrato_preenchimento": None
@@ -522,7 +963,6 @@ def main():
             str_competencia = current_date.strftime("%Y-%m")    
             
             # [Restante do Snapshot Mensal e Salvamento Parquet continuam idênticos]    
-            
             for emp_id, state in active_employees.items():
                 db["Fato_Snapshot_Mensal"].append({
                     "competencia": str_competencia,
@@ -531,7 +971,8 @@ def main():
                     "id_area": state["contract"]["id_area"],
                     "salario_vigente": state["contract"]["salario"],
                     "enps_group": state["enps_group"],
-                    "nine_box_score": state["nine_box_score"]
+                    "desempenho": state.get("desempenho", 2),
+                    "potencial": state.get("potencial", 2)
                 })
                 
             current_date += relativedelta(months = 1)
@@ -548,11 +989,15 @@ def main():
     pd.DataFrame(db["Fato_Avaliacao_9Box"]).to_parquet(f"{BASE_DIR}/Fato_Avaliacao_9box.parquet")
     pd.DataFrame(db["Fato_Requisicoes_Vagas"]).to_parquet(f"{BASE_DIR}/Fato_Requisicoes_Vagas.parquet")
     pd.DataFrame(db["Fato_Snapshot_Mensal"]).to_parquet(f"{BASE_DIR}/Fato_Snapshot_Mensal.parquet")
+    pd.DataFrame(db["Fato_Custo_Beneficios"]).to_parquet(f"{BASE_DIR}/Fato_Custo_Beneficios.parquet")
+    pd.DataFrame(db["Fato_Vidas_Beneficios"]).to_parquet(f"{BASE_DIR}/Fato_Vidas_Beneficios.parquet")
+    pd.DataFrame(dim_cursos_data).to_parquet(f"{BASE_DIR}/Dim_Cursos.parquet")
+    pd.DataFrame(db["Fato_Engajamento_LMS"]).to_parquet(f"{BASE_DIR}/Fato_Engajamento_LMS.parquet")
+    pd.DataFrame(db["Fato_ATS_Funil"]).to_parquet(f"{BASE_DIR}/Fato_ATS_Funil.parquet")
+    pd.DataFrame(db["Fato_Absenteismo_Historico"]).to_parquet(f"{BASE_DIR}/Fato_Absenteismo_Historico.parquet")
             
     with open(f"{BASE_DIR}/Dim_Pessoas.json", "w", encoding = "utf-8") as f:
         json.dump(db["Dim_Pessoas"], f, ensure_ascii = False, indent = 2)
                 
     logger.success("[SUCESSO] Geração de arquivos concluída com sucesso! Camada Raw (Parquet/Json) populada.")
             
-if __name__ == "__main__":
-    main()

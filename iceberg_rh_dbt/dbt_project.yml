@@ -1,0 +1,25 @@
+name: 'iceberg_rh_dbt'
+version: '1.0.0'
+
+profile: 'iceberg_rh_dbt'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  iceberg_rh_dbt:
+    staging:
+      +materialized: view
+      +schema: staging
+
+    silver:
+      +materialized: table
+      +schema: silver
